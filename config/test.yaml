@@ -1,0 +1,4 @@
+servers:
+  - name: "TEST"
+    url: "http://localhost:8080/api/health-check"
+    command: "some test command"
