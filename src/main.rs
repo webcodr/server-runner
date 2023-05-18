@@ -1,5 +1,13 @@
 use std::process::{Child, Command};
 
+use clap::Parser;
+
+#[derive(Parser)]
+struct Args {
+    #[arg(short, long, default_value = "servers.yaml")]
+    config: String,
+}
+
 #[derive(serde::Deserialize)]
 struct Server {
     name: String,
@@ -26,9 +34,9 @@ fn check_server(server: Server) -> bool {
         .is_success()
 }
 
-fn get_config() -> Result<Config, config::ConfigError> {
+fn get_config(config_file: String) -> Result<Config, config::ConfigError> {
     let settings = config::Config::builder()
-        .add_source(config::File::new("servers.yaml", config::FileFormat::Yaml))
+        .add_source(config::File::new(&config_file, config::FileFormat::Yaml))
         .build()
         .expect("Could not load file servers.yaml");
 
@@ -36,7 +44,8 @@ fn get_config() -> Result<Config, config::ConfigError> {
 }
 
 fn main() {
-    let config = get_config().expect("Could not load server config");
+    let args = Args::parse();
+    let config = get_config(args.config).expect("Could not load server config");
 
     for server in config.servers {
         println!(
