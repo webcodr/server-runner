@@ -1,0 +1,7 @@
+servers:
+  - name: "REST-API"
+    port: 8080
+    command: "some command"
+  - name: "Frontend"
+    port: 5176
+    command: "yarn preview"
