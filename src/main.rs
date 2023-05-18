@@ -1,13 +1,29 @@
-#[derive(Debug, serde::Deserialize)]
+use std::process::{Child, Command};
+
+#[derive(serde::Deserialize)]
 struct Server {
     name: String,
-    port: u16,
+    url: String,
     command: String,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize)]
 struct Config {
     servers: Vec<Server>,
+}
+
+fn start_server(server: Server) -> Child {
+    let mut cmd = Command::new("sh");
+
+    cmd.arg("-o").arg(server.command);
+    cmd.spawn().expect("Failed to start server")
+}
+
+fn check_server(server: Server) -> bool {
+    reqwest::blocking::get(server.url)
+        .expect("Could not obtain status of server.")
+        .status()
+        .is_success()
 }
 
 fn get_config() -> Result<Config, config::ConfigError> {
@@ -24,8 +40,8 @@ fn main() {
 
     for server in config.servers {
         println!(
-            "Name: {}, Port: {}, Command: {}",
-            server.name, server.port, server.command
+            "Name: {}, URL: {}, Command: {}",
+            server.name, server.url, server.command
         )
     }
 }

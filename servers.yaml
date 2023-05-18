@@ -1,7 +1,4 @@
 servers:
   - name: "REST-API"
-    port: 8080
+    url: "http://localhost:8080/api/health-check"
     command: "some command"
-  - name: "Frontend"
-    port: 5176
-    command: "yarn preview"
