@@ -48,12 +48,16 @@ fn run_command(command: &String) -> Result<Child, std::io::Error> {
 fn check_server(server: &Server) -> bool {
     println!("Checking server {} on url {}", &server.name, &server.url);
 
-    let result = reqwest::blocking::get(&server.url)
-        .expect(&format!(
-            "Could not obtain status of server {}",
-            server.name
-        ))
-        .status();
+    let result = match reqwest::blocking::get(&server.url) {
+        Ok(response) => response.status(),
+        Err(error) => {
+            if error.is_connect() {
+                return false;
+            } else {
+                panic!("Could not connect to server")
+            }
+        }
+    };
 
     return result.is_success();
 }
