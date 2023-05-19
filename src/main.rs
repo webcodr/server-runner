@@ -24,12 +24,15 @@ fn start_server(server: Server) -> Child {
     let mut cmd = Command::new("sh");
 
     cmd.arg("-o").arg(server.command);
-    cmd.spawn().expect("Failed to start server")
+    cmd.spawn().expect(&format!("Failed {}", server.name))
 }
 
 fn check_server(server: Server) -> bool {
     reqwest::blocking::get(server.url)
-        .expect("Could not obtain status of server.")
+        .expect(&format!(
+            "Could not obtain status of server {}",
+            server.name
+        ))
         .status()
         .is_success()
 }
@@ -38,7 +41,10 @@ fn get_config(config_file: String) -> Result<Config, config::ConfigError> {
     let settings = config::Config::builder()
         .add_source(config::File::new(&config_file, config::FileFormat::Yaml))
         .build()
-        .expect("Could not load file servers.yaml");
+        .expect(&format!(
+            "Could not find configuration file {}",
+            config_file
+        ));
 
     settings.try_deserialize::<Config>()
 }
