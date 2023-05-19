@@ -1,6 +1,10 @@
-use std::process::{Child, Command};
-
 use clap::Parser;
+use std::env;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+use std::process::{Child, Command};
+use std::thread;
+use std::time::Duration;
 
 #[derive(Parser)]
 struct Args {
@@ -18,23 +22,40 @@ struct Server {
 #[derive(serde::Deserialize)]
 struct Config {
     servers: Vec<Server>,
+    command: String,
 }
 
-fn start_server(server: Server) -> Child {
-    let mut cmd = Command::new("sh");
-
-    cmd.arg("-o").arg(server.command);
-    cmd.spawn().expect(&format!("Failed {}", server.name))
+struct ServerProcess {
+    name: String,
+    process: Child,
 }
 
-fn check_server(server: Server) -> bool {
-    reqwest::blocking::get(server.url)
+fn run_command(command: &String) -> Result<Child, std::io::Error> {
+    let command_parts: Vec<&str> = command.split(" ").collect();
+    let mut cmd = Command::new(command_parts[0]);
+
+    for i in 1..command_parts.len() {
+        cmd.arg(command_parts[i]);
+    }
+
+    #[cfg(windows)]
+    {
+        cmd.creation_flags(0x08000000);
+    }
+    cmd.spawn()
+}
+
+fn check_server(server: &Server) -> bool {
+    println!("Checking server {} on url {}", &server.name, &server.url);
+
+    let result = reqwest::blocking::get(&server.url)
         .expect(&format!(
             "Could not obtain status of server {}",
             server.name
         ))
-        .status()
-        .is_success()
+        .status();
+
+    return result.is_success();
 }
 
 fn get_config(config_file: String) -> Result<Config, config::ConfigError> {
@@ -52,11 +73,58 @@ fn get_config(config_file: String) -> Result<Config, config::ConfigError> {
 fn main() {
     let args = Args::parse();
     let config = get_config(args.config).expect("Could not load server config");
+    let mut server_processes = vec![];
 
-    for server in config.servers {
-        println!(
-            "Name: {}, URL: {}, Command: {}",
-            server.name, server.url, server.command
-        )
+    println!("Running on {}", env::consts::OS);
+
+    for server in &config.servers {
+        println!("Starting server {}", server.name);
+        let process = match run_command(&server.command) {
+            Ok(child) => child,
+            Err(_) => panic!("Could not start server"),
+        };
+
+        let server_process = ServerProcess {
+            name: server.name.to_string(),
+            process,
+        };
+
+        server_processes.push(server_process);
+    }
+
+    loop {
+        let mut ready = true;
+
+        for server in &config.servers {
+            if check_server(&server) == false {
+                println!("Server {} not ready, waiting 1 s", &server.name);
+                ready = false;
+            }
+        }
+
+        if ready == true {
+            let mut process = match run_command(&config.command) {
+                Ok(child) => child,
+                Err(_) => panic!("Could not execute command"),
+            };
+
+            println!("Running command {}", &config.command);
+
+            process.wait().unwrap();
+
+            println!("Command {} finished successfully", &config.command);
+
+            break;
+        } else {
+            thread::sleep(Duration::from_secs(1));
+        }
+    }
+
+    for mut server_process in server_processes {
+        println!("Stopping server {}", server_process.name);
+        server_process
+            .process
+            .kill()
+            .expect("Failed to stop server process");
     }
 }

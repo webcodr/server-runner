@@ -1,4 +1,5 @@
 servers:
-  - name: "REST-API"
-    url: "http://localhost:8080/api/health-check"
-    command: "some command"
+  - name: "Hello World"
+    url: "http://localhost:3000"
+    command: "node index.js"
+command: "node sleep.js"
