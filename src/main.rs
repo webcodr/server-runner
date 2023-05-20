@@ -77,7 +77,7 @@ fn get_config(config_file: String) -> Result<Config, config::ConfigError> {
 fn main() {
     let args = Args::parse();
     let config = get_config(args.config).expect("Could not load server config");
-    let mut server_processes = vec![];
+    let mut server_processes = Vec::with_capacity(config.servers.len());
 
     println!("Running on {}", env::consts::OS);
 
