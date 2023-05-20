@@ -62,13 +62,18 @@ fn check_server(server: &Server) -> bool {
     return result.is_success();
 }
 
-fn get_config(config_file: String) -> Result<Config, config::ConfigError> {
+fn get_config(filename: &String) -> Result<Config, config::ConfigError> {
+    let cwd = env::current_dir().unwrap();
+    let config_file_path = cwd.join(&filename);
     let settings = config::Config::builder()
-        .add_source(config::File::new(&config_file, config::FileFormat::Yaml))
+        .add_source(config::File::new(
+            config_file_path.to_str().unwrap(),
+            config::FileFormat::Yaml,
+        ))
         .build()
         .expect(&format!(
             "Could not find configuration file {}",
-            config_file
+            &config_file_path.to_str().unwrap()
         ));
 
     settings.try_deserialize::<Config>()
@@ -76,10 +81,14 @@ fn get_config(config_file: String) -> Result<Config, config::ConfigError> {
 
 fn main() {
     let args = Args::parse();
-    let config = get_config(args.config).expect("Could not load server config");
+    let config = get_config(&args.config).expect("Could not load server config");
     let mut server_processes = Vec::with_capacity(config.servers.len());
 
     println!("Running on {}", env::consts::OS);
+    println!(
+        "Current working directory: {}",
+        env::current_dir().unwrap().display()
+    );
 
     for server in &config.servers {
         println!("Starting server {}", server.name);
