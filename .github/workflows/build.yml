@@ -3,6 +3,11 @@ name: Build binaries
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version'
+        required: true
+        default: '1.0.0'
 
 jobs:
   build:
@@ -11,11 +16,11 @@ jobs:
     strategy:
       matrix:
         runners:
-          - name: macos
+          - name: macos-x86-64
             image: macos-latest
-          - name: linux
+          - name: linux-x86-64
             image: ubuntu-latest
-          - name: windows
+          - name: windows-x86-64
             image: windows-latest
 
     steps:
