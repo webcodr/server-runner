@@ -33,5 +33,5 @@ jobs:
       - name: Archive artifacts
         uses: actions/upload-artifact@v2
         with:
-          name: binaries
-          path: target/release/
+          name: ${{ matrix.os }}
+          path: target/release/server-runner
