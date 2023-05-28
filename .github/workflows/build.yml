@@ -33,7 +33,7 @@ jobs:
       - name: Archive artifacts
         uses: actions/upload-artifact@v2
         with:
-          name: ${{ matrix.runners.name }
+          name: ${{ matrix.runners.name }}
           path: |
             target/release/server-runner
             target/release/server-runner.exe
