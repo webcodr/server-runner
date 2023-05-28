@@ -34,4 +34,6 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: ${{ matrix.os }}
-          path: target/release/server-runner(\.exe)?
+          path: |
+            target/release/server-runner
+            target/release/server-runner.exe
