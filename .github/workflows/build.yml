@@ -6,12 +6,17 @@ on:
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runners.image }}
 
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-        rust: [stable]
+        runners:
+          - name: macos
+            image: macos-latest
+          - name: linux
+            image: ubuntu-latest
+          - name: windows
+            image: windows-latest
 
     steps:
       - name: Checkout code
@@ -20,15 +25,15 @@ jobs:
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ matrix.rust }}
+          toolchain: stable
 
       - name: Build
-        run: cargo build --verbose --all --release
+        run: cargo build --release
 
       - name: Archive artifacts
         uses: actions/upload-artifact@v2
         with:
-          name: ${{ matrix.os }}
+          name: ${{ matrix.runners.name }
           path: |
             target/release/server-runner
             target/release/server-runner.exe
