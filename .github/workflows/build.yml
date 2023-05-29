@@ -49,7 +49,7 @@ jobs:
         run: rustup target add ${{ matrix.runners.target }}
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --release --target=${{ matrix.runners.target }}
 
       - name: Archive artifacts
         uses: actions/upload-artifact@v2
