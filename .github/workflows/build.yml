@@ -16,12 +16,25 @@ jobs:
     strategy:
       matrix:
         runners:
+          - name: macos-aarch64
+            image: macos-latest
+            target: aarch64-apple-darwin
+          
           - name: macos-x86-64
             image: macos-latest
+            target: x86_64-apple-darwin
+          
           - name: linux-x86-64
             image: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+
+          - name: linux-aarch64
+            image: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+
           - name: windows-x86-64
             image: windows-latest
+            target: x86_64-pc-windows-msvc
 
     steps:
       - name: Checkout code
@@ -31,6 +44,9 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+
+      - name: Install build target
+        run: rustup target add ${{ matrix.runners.target }}
 
       - name: Build
         run: cargo build --release
