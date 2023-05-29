@@ -45,6 +45,10 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Install Linux aarch64 gcc
+        if: ${{ matrix.runners.name == 'linux-aarch64' }}
+        run: sudo apt-get install gcc-aarch64-linux-gnu
+
       - name: Install build target
         run: rustup target add ${{ matrix.runners.target }}
 
