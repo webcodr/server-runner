@@ -2,6 +2,12 @@
 name = "server-runner"
 version = "0.0.2"
 edition = "2021"
+license-file = "LICENSE"
+homepage = "https://github.com/webcodr/server-runner"
+repository = "https://github.com/webcodr/server-runner"
+documentation = "https://github.com/webcodr/server-runner"
+readme = "README.md"
+description = "Runs servers, checks for HTTP 200 and runs a command when all servers are up and running"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
