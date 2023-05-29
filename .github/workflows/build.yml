@@ -52,5 +52,5 @@ jobs:
         with:
           name: server-runner-${{ inputs.version }}-${{ matrix.runners.name }}
           path: |
-            target/release/server-runner
-            target/release/server-runner.exe
+            target/${{ matrix.runners.target }}/release/server-runner
+            target/${{ matrix.runners.target }}/release/server-runner.exe
