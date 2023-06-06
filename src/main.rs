@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use clap::Parser;
 use std::env;
 #[cfg(windows)]
@@ -30,7 +31,13 @@ struct ServerProcess {
     process: Child,
 }
 
-fn run_command(command: &String) -> Result<Child, std::io::Error> {
+#[derive(PartialEq, Eq)]
+enum ServerStatus {
+    WAITING,
+    RUNNING,
+}
+
+fn run_command(command: &String) -> anyhow::Result<Child> {
     let command_parts: Vec<&str> = command.split(" ").collect();
     let mut cmd = Command::new(command_parts[0]);
 
@@ -42,27 +49,40 @@ fn run_command(command: &String) -> Result<Child, std::io::Error> {
     {
         cmd.creation_flags(0x08000000);
     }
-    cmd.spawn()
+
+    let child = cmd
+        .spawn()
+        .map_err(|_| anyhow!("Could not start procces '{}'", &command))?;
+
+    Ok(child)
 }
 
-fn check_server(server: &Server) -> bool {
+fn check_server(server: &Server) -> anyhow::Result<ServerStatus> {
     println!("Checking server {} on url {}", &server.name, &server.url);
 
     let result = match reqwest::blocking::get(&server.url) {
         Ok(response) => response.status(),
         Err(error) => {
             if error.is_connect() {
-                return false;
+                return Ok(ServerStatus::WAITING);
             } else {
-                panic!("Could not connect to server")
+                return Err(anyhow!(
+                    "Could not connect to server {} on url {}",
+                    &server.name,
+                    &server.url
+                ));
             }
         }
     };
 
-    return result.is_success();
+    return if result.is_success() {
+        Ok(ServerStatus::RUNNING)
+    } else {
+        Ok(ServerStatus::WAITING)
+    };
 }
 
-fn get_config(filename: &String) -> Result<Config, config::ConfigError> {
+fn get_config(filename: &String) -> anyhow::Result<Config> {
     let cwd = env::current_dir().unwrap();
     let config_file_path = cwd.join(&filename);
     let settings = config::Config::builder()
@@ -71,17 +91,18 @@ fn get_config(filename: &String) -> Result<Config, config::ConfigError> {
             config::FileFormat::Yaml,
         ))
         .build()
-        .expect(&format!(
-            "Could not find configuration file {}",
-            &config_file_path.to_str().unwrap()
-        ));
+        .map_err(|_| anyhow!("Could not find config file {}", &filename))?;
 
-    settings.try_deserialize::<Config>()
+    let config = settings
+        .try_deserialize::<Config>()
+        .map_err(|_| anyhow!("Could not parse config file {}", &filename))?;
+
+    Ok(config)
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let config = get_config(&args.config).expect("Could not load server config");
+    let config = get_config(&args.config)?;
     let mut server_processes = Vec::with_capacity(config.servers.len());
 
     println!("Running on {}", env::consts::OS);
@@ -92,11 +113,7 @@ fn main() {
 
     for server in &config.servers {
         println!("Starting server {}", server.name);
-        let process = match run_command(&server.command) {
-            Ok(child) => child,
-            Err(_) => panic!("Could not start server"),
-        };
-
+        let process = run_command(&server.command)?;
         let server_process = ServerProcess {
             name: server.name.to_string(),
             process,
@@ -109,17 +126,15 @@ fn main() {
         let mut ready = true;
 
         for server in &config.servers {
-            if check_server(&server) == false {
+            if check_server(&server)? == ServerStatus::WAITING {
                 println!("Server {} not ready, waiting 1 s", &server.name);
                 ready = false;
             }
         }
 
         if ready == true {
-            let mut process = match run_command(&config.command) {
-                Ok(child) => child,
-                Err(_) => panic!("Could not execute command"),
-            };
+            let mut process = run_command(&config.command)
+                .map_err(|_| anyhow!("Could not start process {}", &config.command))?;
 
             println!("Running command {}", &config.command);
 
@@ -141,5 +156,5 @@ fn main() {
             .expect("Failed to stop server process");
     }
 
-    std::process::exit(0);
+    Ok(())
 }
