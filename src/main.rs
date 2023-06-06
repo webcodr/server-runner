@@ -140,4 +140,6 @@ fn main() {
             .kill()
             .expect("Failed to stop server process");
     }
+
+    std::process::exit(0);
 }
