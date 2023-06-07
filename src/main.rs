@@ -83,7 +83,7 @@ fn check_server(server: &Server) -> anyhow::Result<ServerStatus> {
 }
 
 fn get_config(filename: &String) -> anyhow::Result<Config> {
-    let cwd = env::current_dir().unwrap();
+    let cwd = env::current_dir()?;
     let config_file_path = cwd.join(&filename);
     let settings = config::Config::builder()
         .add_source(config::File::new(
@@ -108,7 +108,7 @@ fn main() -> anyhow::Result<()> {
     println!("Running on {}", env::consts::OS);
     println!(
         "Current working directory: {}",
-        env::current_dir().unwrap().display()
+        env::current_dir()?.display()
     );
 
     for server in &config.servers {
@@ -138,7 +138,7 @@ fn main() -> anyhow::Result<()> {
 
             println!("Running command {}", &config.command);
 
-            process.wait().unwrap();
+            process.wait()?;
 
             println!("Command {} finished successfully", &config.command);
 
