@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use clap::Parser;
 use std::env;
 #[cfg(windows)]
@@ -66,11 +66,11 @@ fn check_server(server: &Server) -> anyhow::Result<ServerStatus> {
             if error.is_connect() {
                 return Ok(ServerStatus::WAITING);
             } else {
-                return Err(anyhow!(
+                bail!(
                     "Could not connect to server {} on url {}",
                     &server.name,
                     &server.url
-                ));
+                );
             }
         }
     };
