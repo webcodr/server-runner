@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail};
+use anyhow::{bail, Context};
 use clap::Parser;
 use std::env;
 #[cfg(windows)]
@@ -52,7 +52,7 @@ fn run_command(command: &String) -> anyhow::Result<Child> {
 
     let child = cmd
         .spawn()
-        .map_err(|_| anyhow!("Could not start procces '{}'", &command))?;
+        .context(format!("Could not start procces '{}'", &command))?;
 
     Ok(child)
 }
@@ -87,15 +87,17 @@ fn get_config(filename: &String) -> anyhow::Result<Config> {
     let config_file_path = cwd.join(&filename);
     let settings = config::Config::builder()
         .add_source(config::File::new(
-            config_file_path.to_str().unwrap(),
+            config_file_path
+                .to_str()
+                .context("Could not convert file path to string")?,
             config::FileFormat::Yaml,
         ))
         .build()
-        .map_err(|_| anyhow!("Could not find config file {}", &filename))?;
+        .context(format!("Could not find config file {}", &filename))?;
 
     let config = settings
         .try_deserialize::<Config>()
-        .map_err(|_| anyhow!("Could not parse config file {}", &filename))?;
+        .context(format!("Could not parse config file {}", &filename))?;
 
     Ok(config)
 }
@@ -134,7 +136,7 @@ fn main() -> anyhow::Result<()> {
 
         if ready == true {
             let mut process = run_command(&config.command)
-                .map_err(|_| anyhow!("Could not start process {}", &config.command))?;
+                .context(format!("Could not start process {}", &config.command))?;
 
             println!("Running command {}", &config.command);
 
