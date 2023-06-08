@@ -102,28 +102,41 @@ fn get_config(filename: &String) -> anyhow::Result<Config> {
     Ok(config)
 }
 
-fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
-    let config = get_config(&args.config)?;
+fn start_servers(config: &Config) -> anyhow::Result<Vec<ServerProcess>> {
     let mut server_processes = Vec::with_capacity(config.servers.len());
 
-    println!("Running on {}", env::consts::OS);
-    println!(
-        "Current working directory: {}",
-        env::current_dir()?.display()
-    );
+    for s in &config.servers {
+        println!("Starting server {}", s.name);
 
-    for server in &config.servers {
-        println!("Starting server {}", server.name);
+        let process = run_command(&s.command)?;
 
-        let process = run_command(&server.command)?;
         let server_process = ServerProcess {
-            name: server.name.to_string(),
+            name: s.name.to_string(),
             process,
         };
 
         server_processes.push(server_process);
     }
+
+    Ok(server_processes)
+}
+
+fn stop_servers(processes: Vec<ServerProcess>) -> anyhow::Result<()> {
+    for mut p in processes {
+        println!("Stopping server {}", p.name);
+
+        p.process
+            .kill()
+            .context(format!("Failed to stop process {}", p.name))?;
+    }
+
+    Ok(())
+}
+
+fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+    let config = get_config(&args.config)?;
+    let server_processes = start_servers(&config)?;
 
     loop {
         let mut ready = true;
@@ -151,14 +164,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    for mut server_process in server_processes {
-        println!("Stopping server {}", server_process.name);
-
-        server_process.process.kill().context(format!(
-            "Failed to stop server process {}",
-            server_process.name
-        ))?;
-    }
+    stop_servers(server_processes)?;
 
     Ok(())
 }
