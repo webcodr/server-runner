@@ -18,13 +18,8 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v2
-        with:
-          node-version: 16
-
-      - name: Install Node modules
-        run: yarn install
+      - name: Install simple http server
+        run: cargo install simple-http-server
 
       - name: Build and Run Tests
         run: cargo test
