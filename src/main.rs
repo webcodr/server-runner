@@ -155,7 +155,7 @@ fn main() -> anyhow::Result<()> {
         server_process
             .process
             .kill()
-            .expect("Failed to stop server process");
+            .context("Failed to stop server process")?;
     }
 
     Ok(())
