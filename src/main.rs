@@ -115,6 +115,7 @@ fn main() -> anyhow::Result<()> {
 
     for server in &config.servers {
         println!("Starting server {}", server.name);
+
         let process = run_command(&server.command)?;
         let server_process = ServerProcess {
             name: server.name.to_string(),
@@ -152,10 +153,11 @@ fn main() -> anyhow::Result<()> {
 
     for mut server_process in server_processes {
         println!("Stopping server {}", server_process.name);
-        server_process
-            .process
-            .kill()
-            .context("Failed to stop server process")?;
+
+        server_process.process.kill().context(format!(
+            "Failed to stop server process {}",
+            server_process.name
+        ))?;
     }
 
     Ok(())
