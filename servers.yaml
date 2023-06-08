@@ -1,5 +1,5 @@
 servers:
   - name: "Hello World"
     url: "http://localhost:3000"
-    command: "node index.js"
-command: "node sleep.js"
+    command: "yarn server"
+command: "yarn sleep"

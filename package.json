@@ -9,6 +9,8 @@
     "polka": "^0.5.2"
   },
   "scripts": {
-    "start": "node index.js"
-  }
+    "server": "node index.js",
+    "sleep": "node sleep.js"
+  },
+  "packageManager": "yarn@3.6.0"
 }
