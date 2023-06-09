@@ -13,7 +13,7 @@ and it's much easier to publish than to many other package managers.
 ### Installation via Cargo
 
 ~~~ sh
-cargo add server-runner
+cargo install server-runner
 ~~~
 
 ## Configuration File
@@ -32,6 +32,4 @@ command: "node cypress"
 server-runner -c config.yaml
 ~~~
 
-Default name of the config file is `servers.yaml`.
-
-
+Default name of the config file is `servers.yaml` in your current working directory.
