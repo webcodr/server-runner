@@ -8,9 +8,13 @@ use std::thread;
 use std::time::Duration;
 
 #[derive(Parser)]
+#[command(version)]
 struct Args {
     #[arg(short, long, default_value = "servers.yaml")]
     config: String,
+
+    #[arg(short, long, default_value_t = false)]
+    verbose: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -37,134 +41,163 @@ enum ServerStatus {
     RUNNING,
 }
 
-fn run_command(command: &String) -> anyhow::Result<Child> {
-    let command_parts: Vec<&str> = command.split(" ").collect();
-    let mut cmd = Command::new(command_parts[0]);
-
-    for i in 1..command_parts.len() {
-        cmd.arg(command_parts[i]);
-    }
-
-    #[cfg(windows)]
-    {
-        cmd.creation_flags(0x08000000);
-    }
-
-    let child = cmd
-        .spawn()
-        .context(format!("Could not start procces '{}'", &command))?;
-
-    Ok(child)
+struct ServerRunner {
+    args: Args,
 }
 
-fn check_server(server: &Server) -> anyhow::Result<ServerStatus> {
-    println!("Checking server {} on url {}", &server.name, &server.url);
+impl ServerRunner {
+    fn run(&self) -> anyhow::Result<()> {
+        let config = self.get_config(&self.args.config)?;
+        let server_processes = self.start_servers(&config)?;
 
-    let result = match reqwest::blocking::get(&server.url) {
-        Ok(response) => response.status(),
-        Err(error) => {
-            if error.is_connect() {
-                return Ok(ServerStatus::WAITING);
+        loop {
+            let mut ready = true;
+
+            for server in &config.servers {
+                if self.check_server(&server)? == ServerStatus::WAITING {
+                    self.log(format!("Server {} not ready, waiting 1 s", &server.name));
+
+                    ready = false;
+                }
+            }
+
+            if ready == true {
+                let mut process = self
+                    .run_command(&config.command)
+                    .context(format!("Could not start process {}", &config.command))?;
+
+                self.log(format!("Running command {}", &config.command));
+
+                process.wait()?;
+
+                self.log(format!("Command {} finished successfully", &config.command));
+
+                break;
             } else {
-                bail!(
-                    "Could not connect to server {} on url {}",
-                    &server.name,
-                    &server.url
-                );
+                thread::sleep(Duration::from_secs(1));
             }
         }
-    };
 
-    return if result.is_success() {
-        Ok(ServerStatus::RUNNING)
-    } else {
-        Ok(ServerStatus::WAITING)
-    };
-}
+        self.stop_servers(server_processes)?;
 
-fn get_config(filename: &String) -> anyhow::Result<Config> {
-    let cwd = env::current_dir()?;
-    let config_file_path = cwd.join(&filename);
-    let settings = config::Config::builder()
-        .add_source(config::File::new(
-            config_file_path
-                .to_str()
-                .context("Could not convert file path to string")?,
-            config::FileFormat::Yaml,
-        ))
-        .build()
-        .context(format!("Could not find config file {}", &filename))?;
+        Ok(())
+    }
 
-    let config = settings
-        .try_deserialize::<Config>()
-        .context(format!("Could not parse config file {}", &filename))?;
+    fn log(&self, message: String) {
+        if self.args.verbose {
+            println!("{}", &message);
+        }
+    }
 
-    Ok(config)
-}
+    fn get_config(&self, filename: &String) -> anyhow::Result<Config> {
+        let cwd = env::current_dir()?;
+        let tmp_path = cwd.join(&filename);
+        let config_file_path = tmp_path.to_str().context(format!(
+            "Could not create String from Path {}",
+            tmp_path.display()
+        ))?;
 
-fn start_servers(config: &Config) -> anyhow::Result<Vec<ServerProcess>> {
-    let mut server_processes = Vec::with_capacity(config.servers.len());
+        self.log(format!("Loading config file {}", config_file_path));
 
-    for s in &config.servers {
-        println!("Starting server {}", s.name);
+        let settings = config::Config::builder()
+            .add_source(config::File::new(
+                config_file_path,
+                config::FileFormat::Yaml,
+            ))
+            .build()
+            .context(format!("Could not find config file {}", &filename))?;
 
-        let process = run_command(&s.command)?;
+        let config = settings
+            .try_deserialize::<Config>()
+            .context(format!("Could not parse config file {}", &filename))?;
 
-        let server_process = ServerProcess {
-            name: s.name.to_string(),
-            process,
+        Ok(config)
+    }
+
+    fn start_servers(&self, config: &Config) -> anyhow::Result<Vec<ServerProcess>> {
+        let mut server_processes = Vec::with_capacity(config.servers.len());
+
+        for s in &config.servers {
+            self.log(format!("Starting server {}", s.name));
+
+            let process = self.run_command(&s.command)?;
+
+            let server_process = ServerProcess {
+                name: s.name.to_string(),
+                process,
+            };
+
+            server_processes.push(server_process);
+        }
+
+        Ok(server_processes)
+    }
+
+    fn stop_servers(&self, processes: Vec<ServerProcess>) -> anyhow::Result<()> {
+        for mut p in processes {
+            self.log(format!("Stopping server {}", p.name));
+
+            p.process
+                .kill()
+                .context(format!("Failed to stop process {}", p.name))?;
+        }
+
+        Ok(())
+    }
+
+    fn run_command(&self, command: &String) -> anyhow::Result<Child> {
+        let command_parts: Vec<&str> = command.split(" ").collect();
+        let mut cmd = Command::new(command_parts[0]);
+
+        for i in 1..command_parts.len() {
+            cmd.arg(command_parts[i]);
+        }
+
+        #[cfg(windows)]
+        {
+            cmd.creation_flags(0x08000000);
+        }
+
+        let child = cmd
+            .spawn()
+            .context(format!("Could not start procces '{}'", &command))?;
+
+        Ok(child)
+    }
+
+    fn check_server(&self, server: &Server) -> anyhow::Result<ServerStatus> {
+        self.log(format!(
+            "Checking server {} on url {}",
+            &server.name, &server.url
+        ));
+
+        let result = match reqwest::blocking::get(&server.url) {
+            Ok(response) => response.status(),
+            Err(error) => {
+                if error.is_connect() {
+                    return Ok(ServerStatus::WAITING);
+                } else {
+                    bail!(
+                        "Could not connect to server {} on url {}",
+                        &server.name,
+                        &server.url
+                    );
+                }
+            }
         };
 
-        server_processes.push(server_process);
+        return if result.is_success() {
+            Ok(ServerStatus::RUNNING)
+        } else {
+            Ok(ServerStatus::WAITING)
+        };
     }
-
-    Ok(server_processes)
-}
-
-fn stop_servers(processes: Vec<ServerProcess>) -> anyhow::Result<()> {
-    for mut p in processes {
-        println!("Stopping server {}", p.name);
-
-        p.process
-            .kill()
-            .context(format!("Failed to stop process {}", p.name))?;
-    }
-
-    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let config = get_config(&args.config)?;
-    let server_processes = start_servers(&config)?;
 
-    loop {
-        let mut ready = true;
-
-        for server in &config.servers {
-            if check_server(&server)? == ServerStatus::WAITING {
-                println!("Server {} not ready, waiting 1 s", &server.name);
-                ready = false;
-            }
-        }
-
-        if ready == true {
-            let mut process = run_command(&config.command)
-                .context(format!("Could not start process {}", &config.command))?;
-
-            println!("Running command {}", &config.command);
-
-            process.wait()?;
-
-            println!("Command {} finished successfully", &config.command);
-
-            break;
-        } else {
-            thread::sleep(Duration::from_secs(1));
-        }
-    }
-
-    stop_servers(server_processes)?;
+    ServerRunner { args }.run()?;
 
     Ok(())
 }
