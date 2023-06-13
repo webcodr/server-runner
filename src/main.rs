@@ -1,5 +1,6 @@
 use anyhow::{bail, Context};
 use clap::Parser;
+use std::collections::HashMap;
 use std::env;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -43,10 +44,11 @@ enum ServerStatus {
 
 struct ServerRunner {
     args: Args,
+    attempts: HashMap<String, u8>,
 }
 
 impl ServerRunner {
-    fn run(&self) -> anyhow::Result<()> {
+    fn run(&mut self) -> anyhow::Result<()> {
         let config = self.get_config(&self.args.config)?;
         let server_processes = self.start_servers(&config)?;
 
@@ -54,10 +56,16 @@ impl ServerRunner {
             let mut ready = true;
 
             for server in &config.servers {
-                if self.check_server(&server)? == ServerStatus::WAITING {
-                    self.log(format!("Server {} not ready, waiting 1 s", &server.name));
-
-                    ready = false;
+                match self.check_server(&server) {
+                    Ok(result) => {
+                        if result == ServerStatus::WAITING {
+                            ready = false;
+                        }
+                    }
+                    Err(e) => {
+                        self.stop_servers(server_processes)?;
+                        return Err(e);
+                    }
                 }
             }
 
@@ -79,6 +87,8 @@ impl ServerRunner {
         }
 
         self.stop_servers(server_processes)?;
+
+        println!("{:?}", self.attempts);
 
         Ok(())
     }
@@ -165,10 +175,28 @@ impl ServerRunner {
         Ok(child)
     }
 
-    fn check_server(&self, server: &Server) -> anyhow::Result<ServerStatus> {
+    fn check_server(&mut self, server: &Server) -> anyhow::Result<ServerStatus> {
+        let server_name = &server.name;
+
+        if self.attempts.contains_key(server_name) {
+            *self.attempts.get_mut(server_name).unwrap() += 1;
+        } else {
+            self.attempts.insert(server_name.to_owned(), 1);
+        }
+
+        let attempts = *self.attempts.get(server_name).unwrap();
+
+        if attempts == 10 {
+            bail!(
+                "Could not connect to server {} after {} attempts",
+                server_name,
+                attempts
+            );
+        }
+
         self.log(format!(
-            "Checking server {} on url {}",
-            &server.name, &server.url
+            "Checking server {} on url {}, attempt {}, waiting one second ...",
+            server_name, &server.url, attempts
         ));
 
         let result = match reqwest::blocking::get(&server.url) {
@@ -179,7 +207,7 @@ impl ServerRunner {
                 } else {
                     bail!(
                         "Could not connect to server {} on url {}",
-                        &server.name,
+                        &server_name,
                         &server.url
                     );
                 }
@@ -196,8 +224,9 @@ impl ServerRunner {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    let attempts: HashMap<String, u8> = HashMap::new();
 
-    ServerRunner { args }.run()?;
+    ServerRunner { args, attempts }.run()?;
 
     Ok(())
 }

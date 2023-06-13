@@ -13,3 +13,14 @@ fn fails_on_missing_config_file() {
 
     command.arg("-c").arg("foobar.yaml").assert().failure();
 }
+
+#[test]
+fn fails_on_too_many_attempts() {
+    let mut command = Command::cargo_bin("server-runner").unwrap();
+
+    command
+        .arg("-c")
+        .arg("max_attempts.yaml")
+        .assert()
+        .failure();
+}
