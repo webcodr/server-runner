@@ -33,3 +33,5 @@ server-runner -c config.yaml
 ~~~
 
 Default name of the config file is `servers.yaml` in your current working directory.
+
+Server Runner will attempt to check a server's status up to ten times with one second between each attempt. If a server is not responding with HTTP 200 after that, Server Runner will shutdown all servers and exit. 
