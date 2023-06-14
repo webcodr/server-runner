@@ -16,6 +16,9 @@ struct Args {
 
     #[arg(short, long, default_value_t = false)]
     verbose: bool,
+
+    #[arg(short, long, default_value_t = 10)]
+    attempts: u8,
 }
 
 #[derive(serde::Deserialize)]
@@ -87,8 +90,6 @@ impl ServerRunner {
         }
 
         self.stop_servers(server_processes)?;
-
-        println!("{:?}", self.attempts);
 
         Ok(())
     }
@@ -186,7 +187,7 @@ impl ServerRunner {
 
         let attempts = *self.attempts.get(server_name).unwrap();
 
-        if attempts == 10 {
+        if attempts == self.args.attempts {
             bail!(
                 "Could not connect to server {} after {} attempts",
                 server_name,
