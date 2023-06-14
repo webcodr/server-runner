@@ -1,6 +1,6 @@
 [package]
 name = "server-runner"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 license-file = "LICENSE"
 homepage = "https://github.com/webcodr/server-runner"
@@ -15,10 +15,12 @@ description = "Runs servers, checks for HTTP 200 and runs a command when all ser
 anyhow = "1.0.71"
 clap = { version = "4.2.7", features = ["derive"] }
 config = "0.13.3"
-reqwest = { version = "0.11.18", features = ["blocking", "native-tls-vendored"] }
+reqwest = { version = "0.11.18", features = [
+  "blocking",
+  "native-tls-vendored",
+] }
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 assert_cmd = "2.0.11"
 predicates = "3.0.3"
-
