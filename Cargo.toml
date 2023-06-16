@@ -15,11 +15,13 @@ description = "Runs servers, checks for HTTP 200 and runs a command when all ser
 anyhow = "1.0.71"
 clap = { version = "4.2.7", features = ["derive"] }
 config = "0.13.3"
+log = "0.4.19"
 reqwest = { version = "0.11.18", features = [
   "blocking",
   "native-tls-vendored",
 ] }
 serde = { version = "1", features = ["derive"] }
+simplelog = "0.12.1"
 
 [dev-dependencies]
 assert_cmd = "2.0.11"

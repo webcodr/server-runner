@@ -1,5 +1,6 @@
 use anyhow::{bail, Context};
 use clap::Parser;
+use log::info;
 use std::collections::HashMap;
 use std::env;
 #[cfg(windows)]
@@ -41,14 +42,26 @@ struct ServerProcess {
 
 #[derive(PartialEq, Eq)]
 enum ServerStatus {
-    WAITING,
-    RUNNING,
+    Waiting,
+    Running,
 }
 
 fn run(args: Args) -> anyhow::Result<()> {
     let config = get_config(args.config)?;
     let server_processes = start_servers(&config)?;
     let mut attempts: HashMap<String, u8> = HashMap::new();
+    let log_level = if args.verbose {
+        simplelog::LevelFilter::Info
+    } else {
+        simplelog::LevelFilter::Warn
+    };
+
+    simplelog::TermLogger::init(
+        log_level,
+        simplelog::Config::default(),
+        simplelog::TerminalMode::Mixed,
+        simplelog::ColorChoice::Auto,
+    )?;
 
     loop {
         let mut ready = true;
@@ -56,7 +69,7 @@ fn run(args: Args) -> anyhow::Result<()> {
         for server in &config.servers {
             match check_server(&server, &mut attempts, args.attempts) {
                 Ok(result) => {
-                    if result == ServerStatus::WAITING {
+                    if result == ServerStatus::Waiting {
                         ready = false;
                     }
                 }
@@ -67,15 +80,15 @@ fn run(args: Args) -> anyhow::Result<()> {
             }
         }
 
-        if ready == true {
+        if ready {
             let mut process = run_command(&config.command)
                 .context(format!("Could not start process {}", &config.command))?;
 
-            println!("Running command {}", &config.command);
+            info!("Running command {}", &config.command);
 
             process.wait()?;
 
-            println!("Command {} finished successfully", &config.command);
+            info!("Command {} finished successfully", &config.command);
 
             break;
         } else {
@@ -96,7 +109,7 @@ fn get_config(filename: String) -> anyhow::Result<Config> {
         tmp_path.display()
     ))?;
 
-    println!("Loading config file {}", config_file_path);
+    info!("Loading config file {}", config_file_path);
 
     let settings = config::Config::builder()
         .add_source(config::File::new(
@@ -117,7 +130,7 @@ fn start_servers(config: &Config) -> anyhow::Result<Vec<ServerProcess>> {
     let mut server_processes = Vec::with_capacity(config.servers.len());
 
     for s in &config.servers {
-        println!("Starting server {}", s.name);
+        info!("Starting server {}", s.name);
 
         let process = run_command(&s.command)?;
 
@@ -134,7 +147,7 @@ fn start_servers(config: &Config) -> anyhow::Result<Vec<ServerProcess>> {
 
 fn stop_servers(processes: Vec<ServerProcess>) -> anyhow::Result<()> {
     for mut p in processes {
-        println!("Stopping server {}", p.name);
+        info!("Stopping server {}", p.name);
 
         p.process
             .kill()
@@ -187,7 +200,7 @@ fn check_server(
         );
     }
 
-    println!(
+    info!(
         "Checking server {} on url {}, attempt {}, waiting one second ...",
         server_name, &server.url, attempts
     );
@@ -196,7 +209,7 @@ fn check_server(
         Ok(response) => response.status(),
         Err(error) => {
             if error.is_connect() {
-                return Ok(ServerStatus::WAITING);
+                return Ok(ServerStatus::Waiting);
             } else {
                 bail!(
                     "Could not connect to server {} on url {}",
@@ -208,9 +221,9 @@ fn check_server(
     };
 
     return if result.is_success() {
-        Ok(ServerStatus::RUNNING)
+        Ok(ServerStatus::Running)
     } else {
-        Ok(ServerStatus::WAITING)
+        Ok(ServerStatus::Waiting)
     };
 }
 
