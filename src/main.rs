@@ -6,6 +6,7 @@ use std::env;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -48,7 +49,7 @@ enum ServerStatus {
 
 fn run(args: Args) -> anyhow::Result<()> {
     let config = get_config(args.config)?;
-    let server_processes = start_servers(&config)?;
+    let server_processes = Arc::new(Mutex::new(start_servers(&config)?));
     let mut attempts: HashMap<String, u8> = HashMap::new();
     let log_level = if args.verbose {
         simplelog::LevelFilter::Info
@@ -63,6 +64,15 @@ fn run(args: Args) -> anyhow::Result<()> {
         simplelog::ColorChoice::Auto,
     )?;
 
+    let server_processes_clone= Arc::clone(&server_processes);
+    ctrlc::set_handler(move || {
+        let mut server_processes= server_processes_clone.lock().unwrap();
+        for mut p in server_processes.iter_mut() {
+            stop_server(&mut p).unwrap();
+        }
+        std::process::exit(0);
+    })?;
+
     loop {
         let mut ready = true;
 
@@ -74,7 +84,10 @@ fn run(args: Args) -> anyhow::Result<()> {
                     }
                 }
                 Err(e) => {
-                    stop_servers(server_processes)?;
+                    let mut server_processes = server_processes.lock().unwrap();
+                    for mut p in server_processes.iter_mut() {
+                        stop_server(&mut p).unwrap();
+                    }
                     return Err(e);
                 }
             }
@@ -96,7 +109,10 @@ fn run(args: Args) -> anyhow::Result<()> {
         }
     }
 
-    stop_servers(server_processes)?;
+    let mut server_processes = server_processes.lock().unwrap();
+    for mut p in server_processes.iter_mut() {
+        stop_server(&mut p).unwrap();
+    }
 
     Ok(())
 }
@@ -145,14 +161,12 @@ fn start_servers(config: &Config) -> anyhow::Result<Vec<ServerProcess>> {
     Ok(server_processes)
 }
 
-fn stop_servers(processes: Vec<ServerProcess>) -> anyhow::Result<()> {
-    for mut p in processes {
-        info!("Stopping server {}", p.name);
+fn stop_server(process: &mut ServerProcess) -> anyhow::Result<()> {
+    info!("Stopping server {}", process.name);
 
-        p.process
-            .kill()
-            .context(format!("Failed to stop process {}", p.name))?;
-    }
+    process.process
+        .kill()
+        .context(format!("Failed to stop process {}", process.name))?;
 
     Ok(())
 }
