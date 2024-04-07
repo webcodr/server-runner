@@ -72,6 +72,9 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v2
 
+      - name: Compress artifacts (Linux x86-64
+        run: tar -czf server-runner-${{ github.event.inputs.version }}-linux-x86-64.tar.gz server-runner-${{ github.event.inputs.version }}-linux-x86-64/server-runner
+
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -89,6 +92,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./server-runner-${{ github.event.inputs.version }}-linux-x86-64
-          asset_name: ${{ github.event.inputs.version }}-linux-x86-64
-          asset_content_type: application/octet-stream
+          asset_path: ./server-runner-${{ github.event.inputs.version }}-linux-x86-64.tar.gz
+          asset_name: server-runner-${{ github.event.inputs.version }}-linux-x86-64.tar.gz
+          asset_content_type: application/gzip
