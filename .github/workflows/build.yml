@@ -72,8 +72,20 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v2
 
-      - name: Compress artifacts (Linux x86-64
+      - name: Compress artifact linux-x86-64
         run: tar -czf server-runner-${{ github.event.inputs.version }}-linux-x86-64.tar.gz server-runner-${{ github.event.inputs.version }}-linux-x86-64/server-runner
+
+      - name: Compress artifact linux-aarch64
+        run: tar -czf server-runner-${{ github.event.inputs.version }}-linux-aarch64.tar.gz server-runner-${{ github.event.inputs.version }}-linux-aarch64/server-runner
+
+      - name: Compress artifact macos-x86-64
+        run: tar -czf server-runner-${{ github.event.inputs.version }}-macos-x86-64.tar.gz server-runner-${{ github.event.inputs.version }}-macos-x86-64/server-runner
+
+      - name: Compress artifact macos-aarch64
+        run: tar -czf server-runner-${{ github.event.inputs.version }}-macos-aarch64.tar.gz server-runner-${{ github.event.inputs.version }}-macos-aarch64/server-runner
+
+      - name: Compress artifact windows-x86-64
+        run: tar -czf server-runner-${{ github.event.inputs.version }}-windows-x86-64.tar.gz server-runner-${{ github.event.inputs.version }}-windows-x86-64/server-runner.exe
 
       - name: Create Release
         id: create_release
@@ -86,7 +98,7 @@ jobs:
           draft: true
           prerelease: false
 
-      - name: Upload Release Asset
+      - name: Upload Release Asset linux-x86-64
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -94,4 +106,44 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./server-runner-${{ github.event.inputs.version }}-linux-x86-64.tar.gz
           asset_name: server-runner-${{ github.event.inputs.version }}-linux-x86-64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload Release Asset linux-aarch64
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./server-runner-${{ github.event.inputs.version }}-linux-aarch64.tar.gz
+          asset_name: server-runner-${{ github.event.inputs.version }}-linux-aarch64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload Release Asset macos-x86-64
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./server-runner-${{ github.event.inputs.version }}-macos-x86-64.tar.gz
+          asset_name: server-runner-${{ github.event.inputs.version }}-macos-x86-64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload Release Asset macos-aarch64
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./server-runner-${{ github.event.inputs.version }}-macos-aarch64.tar.gz
+          asset_name: server-runner-${{ github.event.inputs.version }}-macos-aarch64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload Release Asset windows-x86-64
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./server-runner-${{ github.event.inputs.version }}-windows-x86-64.tar.gz
+          asset_name: server-runner-${{ github.event.inputs.version }}-windows-x86-64.tar.gz
           asset_content_type: application/gzip
