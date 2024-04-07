@@ -1,6 +1,8 @@
 # Server Runner
 
-[![Tests](https://github.com/webcodr/server-runner/actions/workflows/test.yml/badge.svg)](https://github.com/webcodr/server-runner/actions/workflows/test.yml)
+![GitHub](https://img.shields.io/badge/github-webcodr/server--runner-38473874?style=for-the-badge&logo=github)
+![Crates.io Version](https://img.shields.io/crates/v/server-runner?style=for-the-badge)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/webcodr/server-runner/build.yml?style=for-the-badge)
 
 Server Runner is a little Rust programm to run multiple web servers, check until all servers are ready via a URL that returns HTTP 200 und runs a command when all servers are ready.
 
