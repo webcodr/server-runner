@@ -1,5 +1,4 @@
-
-name: Build binaries
+name: Build and Release
 
 on:
   workflow_dispatch:
@@ -11,54 +10,61 @@ on:
 
 jobs:
   build:
-    runs-on: ${{ matrix.runners.image }}
-
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        runners:
-          - name: macos-aarch64
-            image: macos-latest
-            target: aarch64-apple-darwin
-          
-          - name: macos-x86-64
-            image: macos-latest
-            target: x86_64-apple-darwin
-          
-          - name: linux-x86-64
-            image: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-
-          - name: linux-aarch64
-            image: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-
-          - name: windows-x86-64
-            image: windows-latest
-            target: x86_64-pc-windows-msvc
-
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        target: [x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc, x86_64-apple-darwin, aarch64-unknown-linux-gnu, aarch64-apple-darwin]
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Set up Rust
+      - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-
-      - name: Install Linux aarch64 gcc
-        if: ${{ matrix.runners.name == 'linux-aarch64' }}
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: Install build target
-        run: rustup target add ${{ matrix.runners.target }}
+          target: ${{ matrix.target }}
+          override: true
 
       - name: Build
-        run: cargo build --release --target=${{ matrix.runners.target }}
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target ${{ matrix.target }}
 
-      - name: Archive artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v2
         with:
-          name: server-runner-${{ inputs.version }}-${{ matrix.runners.name }}
-          path: |
-            target/${{ matrix.runners.target }}/release/server-runner
-            target/${{ matrix.runners.target }}/release/server-runner.exe
+          name: ${{ github.event.inputs.version }}-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v2
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          release_name: Release ${{ github.event.inputs.version }}
+          draft: true
+          prerelease: false
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./${{ github.event.inputs.version }}-x86_64-unknown-linux-gnu
+          asset_name: ${{ github.event.inputs.version }}-x86_64-unknown-linux-gnu
+          asset_content_type: application/octet-stream
