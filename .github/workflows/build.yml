@@ -81,7 +81,7 @@ jobs:
           path: target/${{ matrix.runners.target }}/release/${{ matrix.runners.artifact }}
 
       - name: Compress artifact ${{ matrix.runners.name }}
-        run: tar -czf server-runner-${{ github.event.inputs.version }}-${{ matrix.runners.name }}.tar.gz server-runner-${{ github.event.inputs.version }}-${{ matrix.runners.name }}/${{ matrix.runners.artifact }}
+        run: tar -czf server-runner-${{ github.event.inputs.version }}-${{ matrix.runners.name }}.tar.gz target/${{ matrix.runners.target }}/release/${{ matrix.runners.artifact }}
 
       - name: Upload Release Asset ${{ matrix.runners.name }}
         uses: actions/upload-release-asset@v1
