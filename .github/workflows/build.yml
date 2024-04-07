@@ -79,7 +79,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.event.inputs.version }}
-          release_name: Release ${{ github.event.inputs.version }}
+          release_name: ${{ github.event.inputs.version }}
           draft: true
           prerelease: false
 
@@ -89,6 +89,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./${{ github.event.inputs.version }}-x86_64-unknown-linux-gnu
-          asset_name: ${{ github.event.inputs.version }}-x86_64-unknown-linux-gnu
+          asset_path: ./server-runner-${{ github.event.inputs.version }}-linux-x86-64
+          asset_name: ${{ github.event.inputs.version }}-linux-x86-64
           asset_content_type: application/octet-stream
