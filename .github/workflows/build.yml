@@ -1,5 +1,4 @@
-
-name: Build binaries
+name: Build and Release
 
 on:
   workflow_dispatch:
@@ -10,8 +9,25 @@ on:
         default: '1.0.0'
 
 jobs:
+  create_release:
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          release_name: ${{ github.event.inputs.version }}
+          draft: true
+          prerelease: false
+
   build:
     runs-on: ${{ matrix.runners.image }}
+    needs: create_release
 
     strategy:
       matrix:
@@ -19,22 +35,27 @@ jobs:
           - name: macos-aarch64
             image: macos-latest
             target: aarch64-apple-darwin
-          
+            artifact: server-runner
+
           - name: macos-x86-64
             image: macos-latest
             target: x86_64-apple-darwin
-          
+            artifact: server-runner
+
           - name: linux-x86-64
             image: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            artifact: server-runner
 
           - name: linux-aarch64
             image: ubuntu-latest
             target: aarch64-unknown-linux-gnu
+            artifact: server-runner
 
           - name: windows-x86-64
             image: windows-latest
             target: x86_64-pc-windows-msvc
+            artifact: server-runner.exe
 
     steps:
       - name: Checkout code
@@ -59,6 +80,17 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: server-runner-${{ inputs.version }}-${{ matrix.runners.name }}
-          path: |
-            target/${{ matrix.runners.target }}/release/server-runner
-            target/${{ matrix.runners.target }}/release/server-runner.exe
+          path: target/${{ matrix.runners.target }}/release/${{ matrix.runners.artifact }}
+
+      - name: Compress artifact ${{ matrix.runners.name }}
+        run: tar -czf server-runner-${{ github.event.inputs.version }}-${{ matrix.runners.name }}.tar.gz -C ./target/${{ matrix.runners.target }}/release ${{ matrix.runners.artifact }}
+
+      - name: Upload Release Asset ${{ matrix.runners.name }}
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: ./server-runner-${{ github.event.inputs.version }}-${{ matrix.runners.name }}.tar.gz
+          asset_name: server-runner-${{ github.event.inputs.version }}-${{ matrix.runners.name }}.tar.gz
+          asset_content_type: application/gzip
