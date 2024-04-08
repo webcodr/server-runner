@@ -64,12 +64,15 @@ fn run(args: Args) -> anyhow::Result<()> {
         simplelog::ColorChoice::Auto,
     )?;
 
-    let server_processes_clone= Arc::clone(&server_processes);
+    let server_processes_clone = Arc::clone(&server_processes);
     ctrlc::set_handler(move || {
-        let mut server_processes= server_processes_clone.lock().unwrap();
-        for mut p in server_processes.iter_mut() {
-            stop_server(&mut p).unwrap();
+        let mut server_processes = server_processes_clone.lock().unwrap();
+
+        match stop_servers(&mut server_processes) {
+            Ok(_) => info!("All servers stopped successfully"),
+            Err(e) => info!("Could not stop servers: {}", e),
         }
+
         std::process::exit(0);
     })?;
 
@@ -85,9 +88,12 @@ fn run(args: Args) -> anyhow::Result<()> {
                 }
                 Err(e) => {
                     let mut server_processes = server_processes.lock().unwrap();
-                    for mut p in server_processes.iter_mut() {
-                        stop_server(&mut p).unwrap();
+
+                    match stop_servers(&mut server_processes) {
+                        Ok(_) => info!("All servers stopped successfully"),
+                        Err(e) => info!("Could not stop servers: {}", e),
                     }
+
                     return Err(e);
                 }
             }
@@ -104,14 +110,16 @@ fn run(args: Args) -> anyhow::Result<()> {
             info!("Command {} finished successfully", &config.command);
 
             break;
-        } else {
-            thread::sleep(Duration::from_secs(1));
         }
+
+        thread::sleep(Duration::from_secs(1));
     }
 
     let mut server_processes = server_processes.lock().unwrap();
-    for mut p in server_processes.iter_mut() {
-        stop_server(&mut p).unwrap();
+
+    match stop_servers(&mut server_processes) {
+        Ok(_) => info!("All servers stopped successfully"),
+        Err(e) => info!("Could not stop servers: {}", e),
     }
 
     Ok(())
@@ -161,12 +169,14 @@ fn start_servers(config: &Config) -> anyhow::Result<Vec<ServerProcess>> {
     Ok(server_processes)
 }
 
-fn stop_server(process: &mut ServerProcess) -> anyhow::Result<()> {
-    info!("Stopping server {}", process.name);
+fn stop_servers(server_processes: &mut Vec<ServerProcess>) -> anyhow::Result<()> {
+    for p in server_processes.iter_mut() {
+        info!("Stopping server {}", p.name);
 
-    process.process
-        .kill()
-        .context(format!("Failed to stop process {}", process.name))?;
+        p.process
+            .kill()
+            .context(format!("Failed to stop process {}", p.name))?;
+    }
 
     Ok(())
 }
