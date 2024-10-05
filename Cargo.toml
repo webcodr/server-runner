@@ -14,10 +14,10 @@ description = "Runs servers, checks for HTTP 200 and runs a command when all ser
 [dependencies]
 anyhow = "1.0.71"
 clap = { version = "4.2.7", features = ["derive"] }
-config = "0.13.3"
+config = "0.14.0"
 ctrlc = "3.4.4"
 log = "0.4.19"
-reqwest = { version = "0.11.18", features = [
+reqwest = { version = "0.12.8", features = [
   "blocking",
   "native-tls-vendored",
 ] }
