@@ -12,18 +12,18 @@ description = "Runs servers, checks for HTTP 200 and runs a command when all ser
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.71"
-clap = { version = "4.2.7", features = ["derive"] }
-config = "0.14.0"
-ctrlc = "3.4.4"
-log = "0.4.19"
-reqwest = { version = "0.12.8", features = [
+anyhow = "1.0.98"
+clap = { version = "4.5.37", features = ["derive"] }
+config = "0.15.11"
+ctrlc = "3.4.6"
+log = "0.4.27"
+reqwest = { version = "0.12.15", features = [
   "blocking",
   "native-tls-vendored",
 ] }
 serde = { version = "1", features = ["derive"] }
-simplelog = "0.12.1"
+simplelog = "0.12.2"
 
 [dev-dependencies]
-assert_cmd = "2.0.11"
-predicates = "3.0.3"
+assert_cmd = "2.0.17"
+predicates = "3.1.3"
