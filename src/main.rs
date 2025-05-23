@@ -80,7 +80,7 @@ fn run(args: Args) -> anyhow::Result<()> {
         let mut ready = true;
 
         for server in &config.servers {
-            match check_server(&server, &mut attempts, args.attempts) {
+            match check_server(server, &mut attempts, args.attempts) {
                 Ok(result) => {
                     if result == ServerStatus::Waiting {
                         ready = false;
