@@ -244,11 +244,11 @@ fn check_server(
         }
     };
 
-    return if result.is_success() {
+    if result.is_success() {
         Ok(ServerStatus::Running)
     } else {
         Ok(ServerStatus::Waiting)
-    };
+    }
 }
 
 fn main() -> anyhow::Result<()> {
