@@ -182,13 +182,13 @@ fn stop_servers(server_processes: &mut Vec<ServerProcess>) -> anyhow::Result<()>
 }
 
 fn run_command(command: &String) -> anyhow::Result<Child> {
-    let command_parts: Vec<&str> = command.split(" ").collect();
+    let command_parts: Vec<&str> = command.split(' ').collect();
     let mut cmd = Command::new(command_parts[0]);
 
-    for i in 1..command_parts.len() {
-        cmd.arg(command_parts[i]);
+    for  part in command_parts.iter().skip(1) {
+        cmd.arg(part);
     }
-
+    
     #[cfg(windows)]
     {
         cmd.creation_flags(0x08000000);
