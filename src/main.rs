@@ -65,6 +65,7 @@ fn run(args: Args) -> anyhow::Result<()> {
     )?;
 
     let server_processes_clone = Arc::clone(&server_processes);
+
     ctrlc::set_handler(move || {
         stop_servers_and_log(&mut server_processes_clone.lock().unwrap());
         std::process::exit(0);
@@ -109,12 +110,7 @@ fn run(args: Args) -> anyhow::Result<()> {
         thread::sleep(Duration::from_secs(1));
     }
 
-    let mut server_processes = server_processes.lock().unwrap();
-
-    match stop_servers(&mut server_processes) {
-        Ok(_) => info!("All servers stopped successfully"),
-        Err(e) => info!("Could not stop servers: {}", e),
-    }
+    stop_servers_and_log(&mut server_processes.lock().unwrap());
 
     Ok(())
 }
@@ -184,11 +180,11 @@ fn stop_servers_and_log(server_processes: &mut [ServerProcess]) {
 
 fn run_command(command: &str) -> anyhow::Result<Child> {
     let command_parts: Vec<&str> = command.split(' ').collect();
-    
+
     if command_parts.is_empty() {
         bail!("Empty command provided");
     }
-    
+
     let mut cmd = Command::new(command_parts[0]);
 
     for part in command_parts.iter().skip(1) {
