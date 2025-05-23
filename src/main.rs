@@ -169,7 +169,7 @@ fn start_servers(config: &Config) -> anyhow::Result<Vec<ServerProcess>> {
     Ok(server_processes)
 }
 
-fn stop_servers(server_processes: &mut Vec<ServerProcess>) -> anyhow::Result<()> {
+fn stop_servers(server_processes: &mut [ServerProcess]) -> anyhow::Result<()> {
     for p in server_processes.iter_mut() {
         info!("Stopping server {}", p.name);
 
@@ -188,7 +188,7 @@ fn run_command(command: &String) -> anyhow::Result<Child> {
     for  part in command_parts.iter().skip(1) {
         cmd.arg(part);
     }
-    
+
     #[cfg(windows)]
     {
         cmd.creation_flags(0x08000000);
