@@ -48,7 +48,7 @@ enum ServerStatus {
 }
 
 fn run(args: Args) -> anyhow::Result<()> {
-    let config = get_config(args.config)?;
+    let config = get_config(&args.config)?;
     let server_processes = Arc::new(Mutex::new(start_servers(&config)?));
     let mut attempts: HashMap<String, u8> = HashMap::new();
     let log_level = if args.verbose {
@@ -66,13 +66,7 @@ fn run(args: Args) -> anyhow::Result<()> {
 
     let server_processes_clone = Arc::clone(&server_processes);
     ctrlc::set_handler(move || {
-        let mut server_processes = server_processes_clone.lock().unwrap();
-
-        match stop_servers(&mut server_processes) {
-            Ok(_) => info!("All servers stopped successfully"),
-            Err(e) => info!("Could not stop servers: {}", e),
-        }
-
+        stop_servers_and_log(&mut server_processes_clone.lock().unwrap());
         std::process::exit(0);
     })?;
 
@@ -125,9 +119,9 @@ fn run(args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn get_config(filename: String) -> anyhow::Result<Config> {
+fn get_config(filename: &str) -> anyhow::Result<Config> {
     let cwd = env::current_dir()?;
-    let tmp_path = cwd.join(&filename);
+    let tmp_path = cwd.join(filename);
     let config_file_path = tmp_path.to_str().context(format!(
         "Could not create String from Path {}",
         tmp_path.display()
@@ -141,11 +135,11 @@ fn get_config(filename: String) -> anyhow::Result<Config> {
             config::FileFormat::Yaml,
         ))
         .build()
-        .context(format!("Could not find config file {}", &filename))?;
+        .context(format!("Could not find config file {}", filename))?;
 
     let config = settings
         .try_deserialize::<Config>()
-        .context(format!("Could not parse config file {}", &filename))?;
+        .context(format!("Could not parse config file {}", filename))?;
 
     Ok(config)
 }
@@ -181,11 +175,23 @@ fn stop_servers(server_processes: &mut [ServerProcess]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_command(command: &String) -> anyhow::Result<Child> {
+fn stop_servers_and_log(server_processes: &mut [ServerProcess]) {
+    match stop_servers(server_processes) {
+        Ok(_) => info!("All servers stopped successfully"),
+        Err(e) => info!("Could not stop servers: {}", e),
+    }
+}
+
+fn run_command(command: &str) -> anyhow::Result<Child> {
     let command_parts: Vec<&str> = command.split(' ').collect();
+    
+    if command_parts.is_empty() {
+        bail!("Empty command provided");
+    }
+    
     let mut cmd = Command::new(command_parts[0]);
 
-    for  part in command_parts.iter().skip(1) {
+    for part in command_parts.iter().skip(1) {
         cmd.arg(part);
     }
 
@@ -196,7 +202,7 @@ fn run_command(command: &String) -> anyhow::Result<Child> {
 
     let child = cmd
         .spawn()
-        .context(format!("Could not start procces '{}'", &command))?;
+        .context(format!("Could not start process '{}'", command))?;
 
     Ok(child)
 }
@@ -208,15 +214,12 @@ fn check_server(
 ) -> anyhow::Result<ServerStatus> {
     let server_name = &server.name;
 
-    if server_attempts.contains_key(server_name) {
-        *server_attempts.get_mut(server_name).unwrap() += 1;
-    } else {
-        server_attempts.insert(server_name.to_owned(), 1);
-    }
+    let attempts = server_attempts
+        .entry(server_name.to_owned())
+        .and_modify(|attempts| *attempts += 1)
+        .or_insert(1);
 
-    let attempts = *server_attempts.get(server_name).unwrap();
-
-    if attempts == max_attempts {
+    if *attempts == max_attempts {
         bail!(
             "Could not connect to server {} after {} attempts",
             server_name,
@@ -237,7 +240,7 @@ fn check_server(
             } else {
                 bail!(
                     "Could not connect to server {} on url {}",
-                    &server_name,
+                    server_name,
                     &server.url
                 );
             }
