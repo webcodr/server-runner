@@ -67,7 +67,16 @@ fn run(args: Args) -> anyhow::Result<()> {
     let server_processes_clone = Arc::clone(&server_processes);
 
     ctrlc::set_handler(move || {
-        stop_servers_and_log(&mut server_processes_clone.lock().unwrap());
+        let mut processes = match server_processes_clone.lock() {
+            Ok(p) => p,
+            Err(e) => {
+                info!("Could not stop servers: {}", e);
+
+                std::process::exit(0);
+            }
+        };
+
+        stop_servers_and_log(&mut processes);
         std::process::exit(0);
     })?;
 
@@ -82,9 +91,16 @@ fn run(args: Args) -> anyhow::Result<()> {
                     }
                 }
                 Err(e) => {
-                    let mut server_processes = server_processes.lock().unwrap();
+                    let mut processes = match server_processes.lock() {
+                        Ok(p) => p,
+                        Err(e) => {
+                            info!("Could not stop servers: {}", e);
 
-                    match stop_servers(&mut server_processes) {
+                            std::process::exit(0);
+                        }
+                    };
+
+                    match stop_servers(&mut processes) {
                         Ok(_) => info!("All servers stopped successfully"),
                         Err(e) => info!("Could not stop servers: {}", e),
                     }
@@ -110,7 +126,16 @@ fn run(args: Args) -> anyhow::Result<()> {
         thread::sleep(Duration::from_secs(1));
     }
 
-    stop_servers_and_log(&mut server_processes.lock().unwrap());
+    let mut processes = match server_processes.lock() {
+        Ok(p) => p,
+        Err(e) => {
+            info!("Could not stop servers: {}", e);
+
+            std::process::exit(0);
+        }
+    };
+
+    stop_servers_and_log(&mut processes);
 
     Ok(())
 }
