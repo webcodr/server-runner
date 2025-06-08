@@ -1,6 +1,6 @@
 use anyhow::{bail, Context};
 use clap::Parser;
-use log::info;
+use log::{error, info};
 use std::collections::HashMap;
 use std::env;
 #[cfg(windows)]
@@ -69,7 +69,7 @@ fn run(args: Args) -> anyhow::Result<()> {
     ctrlc::set_handler(move || {
         let mut processes = server_processes_clone.lock();
 
-        stop_servers_and_log(&mut processes);
+        stop_servers(&mut processes);
 
         std::process::exit(0);
     })?;
@@ -85,7 +85,7 @@ fn run(args: Args) -> anyhow::Result<()> {
                     }
                 }
                 Err(e) => {
-                    stop_servers_and_log(&mut server_processes.lock());
+                    stop_servers(&mut server_processes.lock());
 
                     return Err(e);
                 }
@@ -108,7 +108,7 @@ fn run(args: Args) -> anyhow::Result<()> {
         thread::sleep(Duration::from_secs(1));
     }
 
-    stop_servers_and_log(&mut server_processes.lock());
+    stop_servers(&mut server_processes.lock());
 
     Ok(())
 }
@@ -157,19 +157,7 @@ fn start_servers(config: &Config) -> anyhow::Result<Vec<ServerProcess>> {
     Ok(server_processes)
 }
 
-fn stop_servers(server_processes: &mut [ServerProcess]) -> anyhow::Result<()> {
-    for p in server_processes.iter_mut() {
-        info!("Stopping server {}", p.name);
-
-        p.process
-            .kill()
-            .context(format!("Failed to stop process {}", p.name))?;
-    }
-
-    Ok(())
-}
-
-fn stop_servers_and_log(server_processes: &mut LockResult<MutexGuard<Vec<ServerProcess>>>) {
+fn stop_servers(server_processes: &mut LockResult<MutexGuard<Vec<ServerProcess>>>) {
     let processes = match server_processes {
         Ok(p) => p,
         Err(e) => {
@@ -179,10 +167,15 @@ fn stop_servers_and_log(server_processes: &mut LockResult<MutexGuard<Vec<ServerP
         }
     };
 
-    match stop_servers(processes) {
-        Ok(_) => info!("All servers stopped successfully"),
-        Err(e) => info!("Could not stop servers: {}", e),
+    for p in processes.iter_mut() {
+        info!("Stopping server {}", p.name);
+
+        if p.process.kill().is_err() {
+            error!("Failed to stop process {}", p.name);
+        }
     }
+
+    info!("All servers stopped successfully")
 }
 
 fn run_command(command: &str) -> anyhow::Result<Child> {
