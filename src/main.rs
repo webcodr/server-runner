@@ -48,9 +48,10 @@ enum ServerStatus {
 }
 
 fn run(args: Args) -> anyhow::Result<()> {
-    let config = get_config(&args.config)?;
-    let server_processes = start_servers(&config)?;
+    let Config { servers, command } = get_config(&args.config)?;
+    let server_processes = start_servers(&servers)?;
     let server_processes_arc_mutex = Arc::new(Mutex::new(server_processes));
+    let server_processes_clone = Arc::clone(&server_processes_arc_mutex);
     let mut attempts: HashMap<String, u8> = HashMap::new();
     let log_level = if args.verbose {
         simplelog::LevelFilter::Info
@@ -64,8 +65,6 @@ fn run(args: Args) -> anyhow::Result<()> {
         simplelog::TerminalMode::Mixed,
         simplelog::ColorChoice::Auto,
     )?;
-
-    let server_processes_clone = Arc::clone(&server_processes_arc_mutex);
 
     ctrlc::set_handler(move || {
         let mut processes = server_processes_clone.lock();
@@ -81,7 +80,7 @@ fn run(args: Args) -> anyhow::Result<()> {
     loop {
         let mut ready = true;
 
-        for server in &config.servers {
+        for server in &servers {
             match check_server(server, &mut attempts, args.attempts) {
                 Ok(result) => {
                     if result == ServerStatus::Waiting {
@@ -97,14 +96,14 @@ fn run(args: Args) -> anyhow::Result<()> {
         }
 
         if ready {
-            let mut process = run_command(&config.command)
-                .context(format!("Could not start process {}", &config.command))?;
+            let mut process =
+                run_command(&command).context(format!("Could not start process {}", command))?;
 
-            info!("Running command {}", &config.command);
+            info!("Running command {}", command);
 
             process.wait()?;
 
-            info!("Command {} finished successfully", &config.command);
+            info!("Command {} finished successfully", command);
 
             break;
         }
@@ -142,17 +141,15 @@ fn get_config(filename: &str) -> anyhow::Result<Config> {
     Ok(config)
 }
 
-fn start_servers(config: &Config) -> anyhow::Result<Vec<ServerProcess>> {
-    let mut server_processes = Vec::with_capacity(config.servers.len());
+fn start_servers(servers: &Vec<Server>) -> anyhow::Result<Vec<ServerProcess>> {
+    let mut server_processes = Vec::with_capacity(servers.len());
 
-    for s in &config.servers {
+    for s in servers {
         info!("Starting server {}", s.name);
-
-        let process = run_command(&s.command)?;
 
         let server_process = ServerProcess {
             name: s.name.to_string(),
-            process,
+            process: run_command(&s.command)?,
         };
 
         server_processes.push(server_process);
@@ -200,11 +197,7 @@ fn run_command(command: &str) -> anyhow::Result<Child> {
         cmd.creation_flags(0x08000000);
     }
 
-    let child = cmd
-        .spawn()
-        .context(format!("Could not start process '{}'", command))?;
-
-    Ok(child)
+    Ok(cmd.spawn()?)
 }
 
 fn check_server(
@@ -212,37 +205,33 @@ fn check_server(
     server_attempts: &mut HashMap<String, u8>,
     max_attempts: u8,
 ) -> anyhow::Result<ServerStatus> {
-    let server_name = &server.name;
+    let Server { name, url, .. } = server;
 
     let attempts = server_attempts
-        .entry(server_name.to_owned())
+        .entry(name.to_owned())
         .and_modify(|attempts| *attempts += 1)
         .or_insert(1);
 
     if *attempts == max_attempts {
         bail!(
             "Could not connect to server {} after {} attempts",
-            server_name,
+            name,
             attempts
         );
     }
 
     info!(
         "Checking server {} on url {}, attempt {}, waiting one second ...",
-        server_name, &server.url, attempts
+        name, url, attempts
     );
 
-    let result = match reqwest::blocking::get(&server.url) {
+    let result = match reqwest::blocking::get(url) {
         Ok(response) => response.status(),
         Err(error) => {
             if error.is_connect() {
                 return Ok(ServerStatus::Waiting);
             } else {
-                bail!(
-                    "Could not connect to server {} on url {}",
-                    server_name,
-                    &server.url
-                );
+                bail!("Could not connect to server {} on url {}", name, url);
             }
         }
     };
