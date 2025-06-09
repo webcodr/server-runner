@@ -3,7 +3,6 @@ use clap::Parser;
 use log::info;
 use std::collections::HashMap;
 use std::env;
-use std::error::Error;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command};
@@ -73,7 +72,7 @@ fn run(args: Args) -> anyhow::Result<()> {
 
         match stop_servers(&mut processes) {
             Ok(_) => {}
-            Err(e) => exit_with_error(Box::from(e)),
+            Err(e) => exit_with_error(e),
         };
 
         std::process::exit(0);
@@ -255,7 +254,7 @@ fn check_server(
     }
 }
 
-fn exit_with_error(e: Box<dyn Error>) {
+fn exit_with_error(e: anyhow::Error) -> ! {
     eprintln!("An error occurred: {}", e);
 
     std::process::exit(1)
@@ -266,6 +265,6 @@ fn main() {
 
     match run(args) {
         Ok(_) => {}
-        Err(e) => exit_with_error(Box::from(e)),
+        Err(e) => exit_with_error(e),
     }
 }
