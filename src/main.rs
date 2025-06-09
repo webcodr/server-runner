@@ -1,8 +1,9 @@
 use anyhow::{bail, Context};
 use clap::Parser;
-use log::{error, info};
+use log::info;
 use std::collections::HashMap;
 use std::env;
+use std::error::Error;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command};
@@ -70,7 +71,10 @@ fn run(args: Args) -> anyhow::Result<()> {
     ctrlc::set_handler(move || {
         let mut processes = server_processes_clone.lock();
 
-        stop_servers(&mut processes);
+        match stop_servers(&mut processes) {
+            Ok(_) => {}
+            Err(e) => exit_with_error(Box::from(e)),
+        };
 
         std::process::exit(0);
     })?;
@@ -86,7 +90,7 @@ fn run(args: Args) -> anyhow::Result<()> {
                     }
                 }
                 Err(e) => {
-                    stop_servers(&mut server_processes_arc_mutex.lock());
+                    stop_servers(&mut server_processes_arc_mutex.lock())?;
 
                     return Err(e);
                 }
@@ -109,7 +113,7 @@ fn run(args: Args) -> anyhow::Result<()> {
         thread::sleep(Duration::from_secs(1));
     }
 
-    stop_servers(&mut server_processes_arc_mutex.lock());
+    stop_servers(&mut server_processes_arc_mutex.lock())?;
 
     Ok(())
 }
@@ -158,25 +162,25 @@ fn start_servers(config: &Config) -> anyhow::Result<Vec<ServerProcess>> {
     Ok(server_processes)
 }
 
-fn stop_servers(server_processes: &mut LockResult<MutexGuard<Vec<ServerProcess>>>) {
+fn stop_servers(
+    server_processes: &mut LockResult<MutexGuard<Vec<ServerProcess>>>,
+) -> anyhow::Result<()> {
     let processes = match server_processes {
         Ok(p) => p,
-        Err(e) => {
-            info!("Could not stop servers: {}", e);
-
-            std::process::exit(1);
-        }
+        Err(e) => bail!("{}", e),
     };
 
     for p in processes.iter_mut() {
         info!("Stopping server {}", p.name);
 
         if p.process.kill().is_err() {
-            error!("Failed to stop process {}", p.name);
+            bail!("Failed to stop process {}", p.name);
         }
     }
 
-    info!("All servers stopped successfully")
+    info!("All servers stopped successfully");
+
+    Ok(())
 }
 
 fn run_command(command: &str) -> anyhow::Result<Child> {
@@ -251,15 +255,17 @@ fn check_server(
     }
 }
 
+fn exit_with_error(e: Box<dyn Error>) {
+    eprintln!("An error occurred: {}", e);
+
+    std::process::exit(1)
+}
+
 fn main() {
     let args = Args::parse();
 
     match run(args) {
         Ok(_) => {}
-        Err(e) => {
-            eprintln!("An error occurred: {}", e);
-
-            std::process::exit(1)
-        }
+        Err(e) => exit_with_error(Box::from(e)),
     }
 }
