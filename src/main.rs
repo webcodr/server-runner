@@ -49,7 +49,8 @@ enum ServerStatus {
 
 fn run(args: Args) -> anyhow::Result<()> {
     let config = get_config(&args.config)?;
-    let server_processes = Arc::new(Mutex::new(start_servers(&config)?));
+    let server_processes = start_servers(&config)?;
+    let server_processes_arc_mutex = Arc::new(Mutex::new(server_processes));
     let mut attempts: HashMap<String, u8> = HashMap::new();
     let log_level = if args.verbose {
         simplelog::LevelFilter::Info
@@ -64,7 +65,7 @@ fn run(args: Args) -> anyhow::Result<()> {
         simplelog::ColorChoice::Auto,
     )?;
 
-    let server_processes_clone = Arc::clone(&server_processes);
+    let server_processes_clone = Arc::clone(&server_processes_arc_mutex);
 
     ctrlc::set_handler(move || {
         let mut processes = server_processes_clone.lock();
@@ -85,7 +86,7 @@ fn run(args: Args) -> anyhow::Result<()> {
                     }
                 }
                 Err(e) => {
-                    stop_servers(&mut server_processes.lock());
+                    stop_servers(&mut server_processes_arc_mutex.lock());
 
                     return Err(e);
                 }
@@ -108,7 +109,7 @@ fn run(args: Args) -> anyhow::Result<()> {
         thread::sleep(Duration::from_secs(1));
     }
 
-    stop_servers(&mut server_processes.lock());
+    stop_servers(&mut server_processes_arc_mutex.lock());
 
     Ok(())
 }
@@ -163,7 +164,7 @@ fn stop_servers(server_processes: &mut LockResult<MutexGuard<Vec<ServerProcess>>
         Err(e) => {
             info!("Could not stop servers: {}", e);
 
-            std::process::exit(0);
+            std::process::exit(1);
         }
     };
 
@@ -250,8 +251,15 @@ fn check_server(
     }
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() {
     let args = Args::parse();
 
-    run(args)
+    match run(args) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("An error occurred: {}", e);
+
+            std::process::exit(1)
+        }
+    }
 }
