@@ -1,7 +1,7 @@
 [package]
 name = "server-runner"
 version = "1.6.0"
-edition = "2021"
+edition = "2024"
 license-file = "LICENSE"
 homepage = "https://github.com/webcodr/server-runner"
 repository = "https://github.com/webcodr/server-runner"
@@ -18,8 +18,8 @@ config = "0.15.11"
 ctrlc = "3.4.7"
 log = "0.4.27"
 reqwest = { version = "0.12.15", features = [
-  "blocking",
-  "native-tls-vendored",
+    "blocking",
+    "native-tls-vendored",
 ] }
 serde = { version = "1", features = ["derive"] }
 simplelog = "0.12.2"
