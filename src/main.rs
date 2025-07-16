@@ -2,13 +2,14 @@ use anyhow::{bail, Context};
 use clap::Parser;
 use log::info;
 use std::collections::HashMap;
-use std::env;
+use std::ops::AddAssign;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command};
 use std::sync::{Arc, LockResult, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
+use std::{env, fmt};
 
 #[derive(Parser)]
 #[command(version)]
@@ -47,12 +48,36 @@ enum ServerStatus {
     Running,
 }
 
+#[derive(Copy, Clone, Debug)]
+struct Attempts(u8);
+
+impl AddAssign<u8> for Attempts {
+    fn add_assign(&mut self, other: u8) {
+        self.0 = self.0.wrapping_add(other);
+    }
+}
+
+impl fmt::Display for Attempts {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl PartialEq<u8> for Attempts {
+    fn eq(&self, other: &u8) -> bool {
+        self.0 == *other
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct ServerName(String);
+
 fn run(args: Args) -> anyhow::Result<()> {
     let Config { servers, command } = get_config(&args.config)?;
     let server_processes = start_servers(&servers)?;
     let server_processes_arc_mutex = Arc::new(Mutex::new(server_processes));
     let server_processes_clone = Arc::clone(&server_processes_arc_mutex);
-    let mut attempts: HashMap<String, u8> = HashMap::new();
+    let mut attempts = HashMap::<ServerName, Attempts>::new();
     let log_level = if args.verbose {
         simplelog::LevelFilter::Info
     } else {
@@ -202,15 +227,15 @@ fn run_command(command: &str) -> anyhow::Result<Child> {
 
 fn check_server(
     server: &Server,
-    server_attempts: &mut HashMap<String, u8>,
+    server_attempts: &mut HashMap<ServerName, Attempts>,
     max_attempts: u8,
 ) -> anyhow::Result<ServerStatus> {
     let Server { name, url, .. } = server;
 
     let attempts = server_attempts
-        .entry(name.to_owned())
+        .entry(ServerName(name.to_owned()))
         .and_modify(|attempts| *attempts += 1)
-        .or_insert(1);
+        .or_insert(Attempts(1));
 
     if *attempts == max_attempts {
         bail!(
