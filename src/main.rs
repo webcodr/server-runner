@@ -29,6 +29,12 @@ struct Server {
     name: String,
     url: String,
     command: String,
+    #[serde(default = "default_timeout")]
+    timeout: u64,
+}
+
+fn default_timeout() -> u64 {
+    5
 }
 
 #[derive(serde::Deserialize)]
@@ -95,8 +101,11 @@ fn run(args: Args) -> anyhow::Result<()> {
         let mut processes = server_processes_clone.lock();
 
         match stop_servers(&mut processes) {
-            Ok(_) => {}
-            Err(e) => exit_with_error(e),
+            Ok(_) => info!("All servers stopped successfully"),
+            Err(e) => {
+                eprintln!("Error stopping servers: {}", e);
+                std::process::exit(1);
+            }
         };
 
         std::process::exit(0);
@@ -163,6 +172,14 @@ fn get_config(filename: &str) -> anyhow::Result<Config> {
         .try_deserialize::<Config>()
         .context(format!("Could not parse config file {}", filename))?;
 
+    if config.servers.is_empty() {
+        bail!("Configuration must include at least one server");
+    }
+
+    if config.command.trim().is_empty() {
+        bail!("Configuration must include a command to run");
+    }
+
     Ok(config)
 }
 
@@ -194,7 +211,9 @@ fn stop_servers(
     for p in processes.iter_mut() {
         info!("Stopping server {}", p.name);
 
-        if p.process.kill().is_err() {
+        if let Ok(_) = p.process.kill() {
+            let _ = p.process.wait();
+        } else {
             bail!("Failed to stop process {}", p.name);
         }
     }
@@ -205,13 +224,14 @@ fn stop_servers(
 }
 
 fn run_command(command: &str) -> anyhow::Result<Child> {
-    let command_parts: Vec<&str> = command.split(' ').collect();
+    let command_parts = shlex::split(command)
+        .ok_or_else(|| anyhow::anyhow!("Invalid command: {}", command))?;
 
     if command_parts.is_empty() {
         bail!("Empty command provided");
     }
 
-    let mut cmd = Command::new(command_parts[0]);
+    let mut cmd = Command::new(&command_parts[0]);
 
     for part in command_parts.iter().skip(1) {
         cmd.arg(part);
@@ -230,7 +250,7 @@ fn check_server(
     server_attempts: &mut HashMap<ServerName, Attempts>,
     max_attempts: u8,
 ) -> anyhow::Result<ServerStatus> {
-    let Server { name, url, .. } = server;
+    let Server { name, url, timeout, .. } = server;
 
     let attempts = server_attempts
         .entry(ServerName(name.to_owned()))
@@ -250,7 +270,11 @@ fn check_server(
         name, url, attempts
     );
 
-    let result = match reqwest::blocking::get(url) {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(*timeout))
+        .build()?;
+
+    let result = match client.get(url).send() {
         Ok(response) => response.status(),
         Err(error) => {
             if error.is_connect() {

@@ -1,0 +1,5 @@
+servers:
+  - name: "Test Server"
+    url: "http://localhost:3000"
+    # missing command field
+command: "echo test"
