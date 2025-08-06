@@ -28,7 +28,7 @@ fn fails_on_too_many_attempts() {
 
     command
         .arg("-c")
-        .arg("max_attempts.yaml")
+        .arg("tests/max_attempts.yaml")
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -42,7 +42,7 @@ fn fails_on_too_many_attempts_custom() {
 
     command
         .arg("-c")
-        .arg("max_attempts.yaml")
+        .arg("tests/max_attempts.yaml")
         .arg("-a")
         .arg("5")
         .assert()
@@ -58,7 +58,7 @@ fn fails_on_empty_server_list() {
 
     command
         .arg("-c")
-        .arg("empty_servers.yaml")
+        .arg("tests/empty_servers.yaml")
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -72,7 +72,7 @@ fn fails_on_timeout_with_custom_timeout() {
 
     command
         .arg("-c")
-        .arg("timeout_test.yaml")
+        .arg("tests/timeout.yaml")
         .arg("-a")
         .arg("2")
         .assert()
@@ -88,7 +88,7 @@ fn fails_on_empty_command() {
 
     command
         .arg("-c")
-        .arg("empty_command.yaml")
+        .arg("tests/empty_command.yaml")
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -102,11 +102,11 @@ fn fails_on_invalid_yaml() {
 
     command
         .arg("-c")
-        .arg("invalid_yaml.yaml")
+        .arg("tests/invalid_yaml.yaml")
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Could not find config file invalid_yaml.yaml",
+            "Could not find config file tests/invalid_yaml.yaml",
         ));
 }
 
@@ -116,11 +116,11 @@ fn fails_on_missing_required_fields() {
 
     command
         .arg("-c")
-        .arg("missing_fields.yaml")
+        .arg("tests/missing_fields.yaml")
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Could not parse config file missing_fields.yaml",
+            "Could not parse config file tests/missing_fields.yaml",
         ));
 }
 
@@ -130,7 +130,7 @@ fn fails_on_multiple_unreachable_servers() {
 
     command
         .arg("-c")
-        .arg("multiple_servers.yaml")
+        .arg("tests/multiple_servers.yaml")
         .arg("-a")
         .arg("2")
         .assert()
@@ -146,7 +146,7 @@ fn fails_on_zero_timeout() {
 
     command
         .arg("-c")
-        .arg("zero_timeout.yaml")
+        .arg("tests/zero_timeout.yaml")
         .arg("-a")
         .arg("1")
         .assert()
@@ -162,7 +162,7 @@ fn fails_on_one_attempt() {
 
     command
         .arg("-c")
-        .arg("timeout_test.yaml")
+        .arg("tests/timeout.yaml")
         .arg("-a")
         .arg("1")
         .assert()
