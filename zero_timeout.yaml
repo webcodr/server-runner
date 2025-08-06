@@ -1,0 +1,6 @@
+servers:
+  - name: "Zero Timeout Server"
+    url: "http://localhost:9998"
+    command: "echo 'fake server'"
+    timeout: 0
+command: "echo 'done'"

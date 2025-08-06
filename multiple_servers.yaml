@@ -1,0 +1,13 @@
+servers:
+  - name: "Server One"
+    url: "http://localhost:8001"
+    command: "echo 'fake server 1'"
+    timeout: 2
+  - name: "Server Two"
+    url: "http://localhost:8002"
+    command: "echo 'fake server 2'"
+    timeout: 1
+  - name: "Server Three"
+    url: "http://localhost:8003"
+    command: "echo 'fake server 3'"
+command: "echo 'all done'"
