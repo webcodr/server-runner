@@ -15,8 +15,10 @@ description = "Runs servers, checks for HTTP 200 and runs a command when all ser
 anyhow = "1.0.98"
 clap = { version = "4.5.39", features = ["derive"] }
 config = "0.15.11"
+crossterm = "0.29.0"
 ctrlc = "3.4.7"
 log = "0.4.27"
+ratatui = "0.29.0"
 reqwest = { version = "0.12.19", features = [
     "blocking",
     "native-tls-vendored",

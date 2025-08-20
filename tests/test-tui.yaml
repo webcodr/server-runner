@@ -1,0 +1,10 @@
+servers:
+  - name: "Echo Server 1"
+    url: "http://localhost:8001"
+    command: "simple-http-server -p 8001"
+    timeout: 5
+  - name: "Echo Server 2"
+    url: "http://localhost:8002"
+    command: "simple-http-server -p 8002"
+    timeout: 5
+command: "echo 'All servers are ready! Running final command...' && echo 'Test completed successfully.'"

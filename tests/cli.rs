@@ -152,7 +152,7 @@ fn fails_on_zero_timeout() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Could not connect to server Zero Timeout Server after 1 attempts",
+            "Server timeout must be greater than 0",
         ));
 }
 

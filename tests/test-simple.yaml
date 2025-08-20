@@ -1,0 +1,6 @@
+servers:
+  - name: "Test Output Server"
+    url: "http://localhost:9999"
+    command: "echo 'Server starting...' && echo 'Line 1' && echo 'Line 2' && sleep 1 && echo 'Line 3' && simple-http-server -p 9999"
+    timeout: 5
+command: "echo 'All servers ready! Final command executed.'"
