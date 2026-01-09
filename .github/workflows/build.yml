@@ -16,12 +16,12 @@ jobs:
     steps:
       - name: Create Release
         id: create_release
-        uses: actions/create-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.event.inputs.version }}
-          release_name: ${{ github.event.inputs.version }}
+          name: ${{ github.event.inputs.version }}
           draft: true
           prerelease: false
 
@@ -64,12 +64,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install Linux aarch64 gcc
         if: ${{ matrix.runners.name == 'linux-aarch64' }}
@@ -91,11 +89,9 @@ jobs:
         run: tar -czf server-runner-${{ github.event.inputs.version }}-${{ matrix.runners.name }}.tar.gz -C ./target/${{ matrix.runners.target }}/release ${{ matrix.runners.artifact }}
 
       - name: Upload Release Asset ${{ matrix.runners.name }}
-        uses: actions/upload-release-asset@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ needs.create_release.outputs.upload_url }}
-          asset_path: ./server-runner-${{ github.event.inputs.version }}-${{ matrix.runners.name }}.tar.gz
-          asset_name: server-runner-${{ github.event.inputs.version }}-${{ matrix.runners.name }}.tar.gz
-          asset_content_type: application/gzip
+          tag_name: ${{ github.event.inputs.version }}
+          files: ./server-runner-${{ github.event.inputs.version }}-${{ matrix.runners.name }}.tar.gz
