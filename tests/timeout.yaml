@@ -1,6 +1,6 @@
 servers:
   - name: "Timeout Test Server"
     url: "http://localhost:9999"
-    command: "echo 'fake server'"
+    command: "sleep 100"
     timeout: 1
-command: "echo 'done'"
+command: "echo done"

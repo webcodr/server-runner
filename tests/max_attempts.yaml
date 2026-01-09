@@ -1,5 +1,5 @@
 servers:
   - name: "Hello World"
     url: "http://localhost:3001"
-    command: "simple-http-server -p 3000 -i -s"
-command: "sleep 5s"
+    command: "sleep 100"
+command: "echo done"
