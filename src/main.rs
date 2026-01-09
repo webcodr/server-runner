@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use clap::Parser;
 use log::info;
 use std::collections::HashMap;
@@ -211,7 +211,7 @@ fn stop_servers(
     for p in processes.iter_mut() {
         info!("Stopping server {}", p.name);
 
-        if let Ok(_) = p.process.kill() {
+        if p.process.kill().is_ok() {
             let _ = p.process.wait();
         } else {
             bail!("Failed to stop process {}", p.name);
@@ -224,8 +224,8 @@ fn stop_servers(
 }
 
 fn run_command(command: &str) -> anyhow::Result<Child> {
-    let command_parts = shlex::split(command)
-        .ok_or_else(|| anyhow::anyhow!("Invalid command: {}", command))?;
+    let command_parts =
+        shlex::split(command).ok_or_else(|| anyhow::anyhow!("Invalid command: {}", command))?;
 
     if command_parts.is_empty() {
         bail!("Empty command provided");
@@ -250,7 +250,9 @@ fn check_server(
     server_attempts: &mut HashMap<ServerName, Attempts>,
     max_attempts: u8,
 ) -> anyhow::Result<ServerStatus> {
-    let Server { name, url, timeout, .. } = server;
+    let Server {
+        name, url, timeout, ..
+    } = server;
 
     let attempts = server_attempts
         .entry(ServerName(name.to_owned()))
@@ -258,10 +260,16 @@ fn check_server(
         .or_insert(Attempts(1));
 
     if *attempts == max_attempts {
+        let attempt_word = if max_attempts == 1 {
+            "attempt"
+        } else {
+            "attempts"
+        };
         bail!(
-            "Could not connect to server {} after {} attempts",
+            "Could not connect to server {} after {} {}",
             name,
-            attempts
+            attempts,
+            attempt_word
         );
     }
 

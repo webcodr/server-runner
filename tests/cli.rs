@@ -135,9 +135,7 @@ fn fails_on_multiple_unreachable_servers() {
         .arg("2")
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "Could not connect to server",
-        ));
+        .stderr(predicate::str::contains("Could not connect to server"));
 }
 
 #[test]
@@ -152,7 +150,7 @@ fn fails_on_zero_timeout() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Could not connect to server Zero Timeout Server after 1 attempts",
+            "Could not connect to server Zero Timeout Server after 1 attempt",
         ));
 }
 
@@ -168,6 +166,6 @@ fn fails_on_one_attempt() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Could not connect to server Timeout Test Server after 1 attempts",
+            "Could not connect to server Timeout Test Server after 1 attempt",
         ));
 }
