@@ -1,0 +1,63 @@
+# Integration Testing Example
+# Demonstrates orchestrating services for testing
+
+env:
+  TEST_ENV: "ci"
+  NODE_ENV: "test"
+
+servers:
+  # Database starts first
+  - name: "Test Database"
+    url: "http://localhost:5432/health"
+    command: "docker-compose up postgres"
+    priority: 1
+    timeout: 15
+    
+    hooks:
+      before_start: "docker-compose down -v"  # Clean slate
+      after_ready: "npm run db:migrate:test"  # Apply migrations
+    
+    output:
+      mode: "file"
+      stdout: "logs/test-db.log"
+      stderr: "logs/test-db-err.log"
+
+  # API server depends on database
+  - name: "API Server"
+    url: "http://localhost:3000/api/health"
+    command: "npm run start:test"
+    priority: 2
+    depends_on: ["Test Database"]
+    
+    health_check:
+      method: GET
+      expected_status: [200]
+      headers:
+        X-Test-Mode: "true"
+    
+    env:
+      PORT: "3000"
+      DATABASE_URL: "postgresql://test:test@localhost:5432/testdb"
+    
+    hooks:
+      after_ready: "npm run seed:test"  # Load test fixtures
+    
+    output:
+      mode: "capture"
+      prefix: "[API]"
+
+  # Frontend dev server
+  - name: "Frontend"
+    url: "http://localhost:8080"
+    command: "npm run serve"
+    priority: 3
+    depends_on: ["API Server"]
+    
+    env:
+      VUE_APP_API_URL: "http://localhost:3000"
+    
+    output:
+      mode: "null"  # Suppress verbose webpack output
+
+# Run E2E tests when all services are ready
+command: "npm run test:e2e -- --headless"

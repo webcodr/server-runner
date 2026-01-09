@@ -1,0 +1,137 @@
+# Microservices Example
+# Complex dependency graph with multiple services
+
+env:
+  LOG_LEVEL: "info"
+  ENVIRONMENT: "development"
+
+servers:
+  # Infrastructure layer (Priority 1)
+  - name: "PostgreSQL"
+    url: "http://localhost:5432/health"
+    command: "docker run --rm -p 5432:5432 -e POSTGRES_PASSWORD=dev postgres:15"
+    priority: 1
+    startup_delay: 2
+    output:
+      mode: "file"
+      stdout: "logs/postgres.log"
+
+  - name: "Redis"
+    url: "http://localhost:6379/health"
+    command: "docker run --rm -p 6379:6379 redis:7"
+    priority: 1
+    output:
+      mode: "file"
+      stdout: "logs/redis.log"
+
+  - name: "RabbitMQ"
+    url: "http://localhost:15672/api/health/checks/alarms"
+    command: "docker run --rm -p 5672:5672 -p 15672:15672 rabbitmq:3-management"
+    priority: 1
+    health_check:
+      method: GET
+      expected_status: [200]
+      headers:
+        Authorization: "Basic Z3Vlc3Q6Z3Vlc3Q="  # guest:guest
+    output:
+      mode: "file"
+      stdout: "logs/rabbitmq.log"
+
+  # Core services (Priority 2)
+  - name: "Auth Service"
+    url: "http://localhost:4001/health"
+    command: "node services/auth/server.js"
+    priority: 2
+    depends_on: ["PostgreSQL", "Redis"]
+    env:
+      PORT: "4001"
+      DB_URL: "postgresql://postgres:dev@localhost:5432/auth"
+      REDIS_URL: "redis://localhost:6379/0"
+    hooks:
+      before_start: "npm run migrate:auth"
+    output:
+      mode: "capture"
+      prefix: "[AUTH]"
+
+  - name: "User Service"
+    url: "http://localhost:4002/health"
+    command: "node services/users/server.js"
+    priority: 2
+    depends_on: ["PostgreSQL"]
+    env:
+      PORT: "4002"
+      DB_URL: "postgresql://postgres:dev@localhost:5432/users"
+    hooks:
+      before_start: "npm run migrate:users"
+    output:
+      mode: "capture"
+      prefix: "[USERS]"
+
+  - name: "Product Service"
+    url: "http://localhost:4003/health"
+    command: "node services/products/server.js"
+    priority: 2
+    depends_on: ["PostgreSQL"]
+    env:
+      PORT: "4003"
+      DB_URL: "postgresql://postgres:dev@localhost:5432/products"
+    hooks:
+      before_start: "npm run migrate:products"
+    output:
+      mode: "capture"
+      prefix: "[PRODUCTS]"
+
+  # API Gateway (Priority 3)
+  - name: "API Gateway"
+    url: "http://localhost:3000/health"
+    command: "node services/gateway/server.js"
+    priority: 3
+    depends_on: ["Auth Service", "User Service", "Product Service"]
+    env:
+      PORT: "3000"
+      AUTH_SERVICE_URL: "http://localhost:4001"
+      USER_SERVICE_URL: "http://localhost:4002"
+      PRODUCT_SERVICE_URL: "http://localhost:4003"
+    output:
+      mode: "capture"
+      prefix: "[GATEWAY]"
+
+  # Background Workers (Priority 3)
+  - name: "Email Worker"
+    url: "http://localhost:5001/health"
+    command: "node workers/email.js"
+    priority: 3
+    depends_on: ["RabbitMQ", "User Service"]
+    env:
+      RABBITMQ_URL: "amqp://guest:guest@localhost:5672"
+      USER_SERVICE_URL: "http://localhost:4002"
+    output:
+      mode: "capture"
+      prefix: "[EMAIL-WORKER]"
+
+  - name: "Analytics Worker"
+    url: "http://localhost:5002/health"
+    command: "node workers/analytics.js"
+    priority: 3
+    depends_on: ["RabbitMQ", "Redis"]
+    env:
+      RABBITMQ_URL: "amqp://guest:guest@localhost:5672"
+      REDIS_URL: "redis://localhost:6379/1"
+    output:
+      mode: "capture"
+      prefix: "[ANALYTICS-WORKER]"
+
+  # Frontend (Priority 4)
+  - name: "Web App"
+    url: "http://localhost:8080"
+    command: "npm run dev --workspace=webapp"
+    priority: 4
+    depends_on: ["API Gateway"]
+    env:
+      VITE_API_URL: "http://localhost:3000"
+    output:
+      mode: "capture"
+      prefix: "[WEBAPP]"
+
+# Run integration tests
+command: "npm run test:integration"

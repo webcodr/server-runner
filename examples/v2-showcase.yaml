@@ -1,0 +1,167 @@
+# Server Runner v2.0 - Feature Showcase
+# This example demonstrates all major v2.0 features
+
+# Global environment variables
+env:
+  NODE_ENV: "test"
+  LOG_LEVEL: "debug"
+  API_TOKEN: "secret-token-123"
+
+servers:
+  # Priority 1: Database (starts first)
+  - name: "PostgreSQL"
+    url: "http://localhost:5432/health"
+    command: "docker run -p 5432:5432 postgres:15"
+    priority: 1                         # ⭐ NEW: Start first
+    timeout: 10
+    retry_interval: 2                   # ⭐ NEW: Custom polling interval
+    startup_delay: 3                    # ⭐ NEW: Wait before first check
+    
+    health_check:                       # ⭐ NEW: Advanced health checks
+      method: GET
+      expected_status: [200, 204]       # ⭐ NEW: Multiple success codes
+      headers:
+        X-Health-Check: "true"          # ⭐ NEW: Custom headers
+    
+    env:                                # ⭐ NEW: Per-server env vars
+      POSTGRES_USER: "admin"
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"  # ⭐ NEW: Env var expansion
+      POSTGRES_DB: "testdb"
+    
+    hooks:                              # ⭐ NEW: Lifecycle hooks
+      before_start: "echo 'Starting PostgreSQL...'"
+      after_ready: "psql -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;'"
+      before_stop: "pg_dump testdb > backup.sql"
+    
+    output:                             # ⭐ NEW: Output control
+      mode: "file"
+      stdout: "logs/postgres.out"
+      stderr: "logs/postgres.err"
+
+  # Priority 1: Redis (starts with database)
+  - name: "Redis"
+    url: "http://localhost:6379/health"
+    command: "docker run -p 6379:6379 redis:7"
+    priority: 1
+    
+    health_check:
+      method: GET
+      expected_status: [200]
+    
+    output:
+      mode: "capture"                   # Capture and prefix
+      prefix: "[REDIS]"                 # ⭐ NEW: Output prefixing
+
+  # Priority 2: Backend API (depends on database)
+  - name: "Backend API"
+    url: "http://localhost:3000/health"
+    command: "node server.js"
+    priority: 2                         # Starts after priority 1
+    depends_on: ["PostgreSQL", "Redis"] # ⭐ NEW: Explicit dependencies
+    
+    health_check:
+      method: POST                      # ⭐ NEW: Custom HTTP method
+      expected_status: [200, 201]
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Bearer ${API_TOKEN}"
+    
+    env:
+      PORT: "3000"
+      DATABASE_URL: "postgresql://admin:${DB_PASSWORD}@localhost:5432/testdb"
+      REDIS_URL: "redis://localhost:6379"
+    
+    hooks:
+      before_start: "npm run db:migrate"  # Run migrations
+      after_ready: "npm run db:seed"      # Seed test data
+    
+    output:
+      mode: "capture"
+      prefix: "[API]"
+
+  # Priority 3: Frontend (depends on backend)
+  - name: "Frontend"
+    url: "http://localhost:8080"
+    command: "npm run dev"
+    priority: 3
+    depends_on: ["Backend API"]
+    
+    health_check:
+      method: GET
+      expected_status: [200]
+    
+    env:
+      VUE_APP_API_URL: "http://localhost:3000"
+      PORT: "8080"
+    
+    output:
+      mode: "capture"
+      prefix: "[FRONTEND]"
+
+  # Priority 3: Worker (also depends on backend)
+  - name: "Background Worker"
+    url: "http://localhost:4000/health"
+    command: "node worker.js"
+    priority: 3
+    depends_on: ["Backend API"]
+    retry_interval: 1
+    
+    health_check:
+      method: HEAD                      # Lightweight check
+      expected_status: [200, 204]
+    
+    env:
+      WORKER_QUEUE_URL: "redis://localhost:6379"
+    
+    output:
+      mode: "null"                      # ⭐ NEW: Discard output
+
+# Command to run when all servers are ready
+command: "npm run test:e2e"
+
+# ═══════════════════════════════════════════════════════════════
+# USAGE EXAMPLES
+# ═══════════════════════════════════════════════════════════════
+#
+# Basic usage:
+#   server-runner -c examples/v2-showcase.yaml
+#
+# With verbose logging:
+#   server-runner -c examples/v2-showcase.yaml -v
+#
+# Fail fast (stop on first error):
+#   server-runner -c examples/v2-showcase.yaml --fail-fast
+#
+# Custom polling and timeout:
+#   server-runner -c examples/v2-showcase.yaml -p 2 -t 120
+#
+# Set environment variable:
+#   DB_PASSWORD=secret123 server-runner -c examples/v2-showcase.yaml
+#
+# ═══════════════════════════════════════════════════════════════
+# STARTUP ORDER
+# ═══════════════════════════════════════════════════════════════
+#
+# 1. Priority 1 servers start in parallel:
+#    - PostgreSQL (runs before_start hook)
+#    - Redis
+#
+# 2. Wait for both to be healthy
+#    - PostgreSQL runs after_ready hook
+#
+# 3. Priority 2 server starts:
+#    - Backend API (waits for PostgreSQL & Redis via depends_on)
+#    - Runs db:migrate hook before starting
+#    - Runs db:seed hook after healthy
+#
+# 4. Priority 3 servers start in parallel:
+#    - Frontend (waits for Backend API)
+#    - Background Worker (waits for Backend API)
+#
+# 5. All servers healthy → run command: npm run test:e2e
+#
+# 6. Command completes → cleanup:
+#    - Stop all servers
+#    - PostgreSQL runs before_stop hook (backup)
+#
+# ═══════════════════════════════════════════════════════════════

@@ -1,0 +1,8 @@
+# Simple Example - Minimal Configuration
+
+servers:
+  - name: "Web Server"
+    url: "http://localhost:3000"
+    command: "npm start"
+
+command: "npm test"
