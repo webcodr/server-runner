@@ -1,5 +1,6 @@
 use anyhow::{Context, bail};
 use clap::Parser;
+use command_group::{CommandGroup, GroupChild};
 use log::info;
 use std::collections::HashMap;
 use std::ops::AddAssign;
@@ -45,7 +46,7 @@ struct Config {
 
 struct ServerProcess {
     name: String,
-    process: Child,
+    process: GroupChild,
 }
 
 #[derive(PartialEq, Eq)]
@@ -205,7 +206,7 @@ fn start_servers(servers: &Vec<Server>) -> anyhow::Result<Vec<ServerProcess>> {
 
         let server_process = ServerProcess {
             name: s.name.to_string(),
-            process: run_command(&s.command)?,
+            process: run_server_command(&s.command)?,
         };
 
         server_processes.push(server_process);
@@ -238,6 +239,18 @@ fn stop_servers(
 }
 
 fn run_command(command: &str) -> anyhow::Result<Child> {
+    let mut cmd = build_command(command)?;
+
+    Ok(cmd.spawn()?)
+}
+
+fn run_server_command(command: &str) -> anyhow::Result<GroupChild> {
+    let mut cmd = build_command(command)?;
+
+    Ok(cmd.group_spawn()?)
+}
+
+fn build_command(command: &str) -> anyhow::Result<Command> {
     let command_parts =
         shlex::split(command).ok_or_else(|| anyhow::anyhow!("Invalid command: {}", command))?;
 
@@ -256,7 +269,7 @@ fn run_command(command: &str) -> anyhow::Result<Child> {
         cmd.creation_flags(0x08000000);
     }
 
-    Ok(cmd.spawn()?)
+    Ok(cmd)
 }
 
 fn check_server(
