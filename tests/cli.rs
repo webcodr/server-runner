@@ -215,13 +215,16 @@ fn stops_servers_when_final_command_cannot_spawn() {
 fn stops_descendant_processes_when_server_never_becomes_ready() {
     use std::fs;
 
-    let marker = "/tmp/server-runner-descendant-marker";
-    let config = "/tmp/server-runner-descendant.yaml";
-    let script = "/tmp/server-runner-descendant.sh";
-    let _ = fs::remove_file(marker);
+    let suffix = std::process::id();
+    let marker = format!("/tmp/server-runner-descendant-marker-{suffix}");
+    let config = format!("/tmp/server-runner-descendant-{suffix}.yaml");
+    let script = format!("/tmp/server-runner-descendant-{suffix}.sh");
+    let _ = fs::remove_file(&marker);
+    let _ = fs::remove_file(&config);
+    let _ = fs::remove_file(&script);
 
     fs::write(
-        script,
+        &script,
         format!(
             "#!/bin/sh\ntrap \"\" HUP\nsleep 30 </dev/null >/dev/null 2>&1 &\necho $! > {marker}\nwait\n"
         ),
@@ -229,7 +232,7 @@ fn stops_descendant_processes_when_server_never_becomes_ready() {
     .unwrap();
 
     fs::write(
-        config,
+        &config,
         format!(
             "servers:\n  - name: \"Descendant Server\"\n    url: \"http://localhost:9997\"\n    command: \"sh {script}\"\n    timeout: 1\ncommand: \"echo done\"\n"
         ),
@@ -240,7 +243,7 @@ fn stops_descendant_processes_when_server_never_becomes_ready() {
 
     command
         .arg("-c")
-        .arg(config)
+        .arg(&config)
         .arg("-a")
         .arg("2")
         .assert()
@@ -248,7 +251,7 @@ fn stops_descendant_processes_when_server_never_becomes_ready() {
 
     thread::sleep(Duration::from_millis(250));
 
-    let pid = fs::read_to_string(marker).unwrap();
+    let pid = fs::read_to_string(&marker).unwrap();
     let still_running = std::process::Command::new("kill")
         .arg("-0")
         .arg(pid.trim())
@@ -263,6 +266,10 @@ fn stops_descendant_processes_when_server_never_becomes_ready() {
         "descendant process {} was still running",
         pid.trim()
     );
+
+    let _ = fs::remove_file(&marker);
+    let _ = fs::remove_file(&config);
+    let _ = fs::remove_file(&script);
 }
 
 fn assert_port_released(addr: &str) {
