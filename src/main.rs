@@ -12,6 +12,9 @@ use std::thread;
 use std::time::Duration;
 use std::{env, fmt};
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Parser)]
 #[command(version)]
 struct Args {
@@ -247,7 +250,15 @@ fn run_command(command: &str) -> anyhow::Result<Child> {
 fn run_server_command(command: &str) -> anyhow::Result<GroupChild> {
     let mut cmd = build_command(command)?;
 
-    Ok(cmd.group_spawn()?)
+    #[cfg(windows)]
+    {
+        Ok(cmd.group().creation_flags(CREATE_NO_WINDOW).spawn()?)
+    }
+
+    #[cfg(not(windows))]
+    {
+        Ok(cmd.group_spawn()?)
+    }
 }
 
 fn build_command(command: &str) -> anyhow::Result<Command> {
@@ -266,7 +277,7 @@ fn build_command(command: &str) -> anyhow::Result<Command> {
 
     #[cfg(windows)]
     {
-        cmd.creation_flags(0x08000000);
+        cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
     Ok(cmd)
