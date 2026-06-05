@@ -1,0 +1,6 @@
+servers:
+  - name: "Ready Server"
+    url: "http://127.0.0.1:8124"
+    command: 'python3 -c "import os,socket;os.close(1);os.close(2);s=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);s.bind((\"127.0.0.1\",8124));s.listen(5);exec(\"while True:\n c,_=s.accept()\n c.recv(1024)\n c.sendall(b\\\"HTTP/1.1 200 OK\\\\r\\\\nContent-Length: 2\\\\r\\\\n\\\\r\\\\nOK\\\")\n c.close()\")"'
+    timeout: 1
+command: "definitely-not-a-real-command-for-server-runner"

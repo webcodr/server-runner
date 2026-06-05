@@ -130,23 +130,27 @@ fn run(args: Args) -> anyhow::Result<()> {
         }
 
         if ready {
-            let mut process =
-                run_command(&command).context(format!("Could not start process {}", command))?;
+            let final_command_result = match run_command(&command)
+                .context(format!("Could not start process {}", command))
+            {
+                Ok(mut process) => {
+                    info!("Running command {}", command);
 
-            info!("Running command {}", command);
+                    match process.wait() {
+                        Ok(status) if status.success() => {
+                            info!("Command {} finished successfully", command);
 
-            let final_command_result = match process.wait() {
-                Ok(status) if status.success() => {
-                    info!("Command {} finished successfully", command);
-
-                    Ok(())
+                            Ok(())
+                        }
+                        Ok(status) => Err(anyhow::anyhow!(
+                            "Command {} failed with exit status {}",
+                            command,
+                            status
+                        )),
+                        Err(error) => Err(error.into()),
+                    }
                 }
-                Ok(status) => Err(anyhow::anyhow!(
-                    "Command {} failed with exit status {}",
-                    command,
-                    status
-                )),
-                Err(error) => Err(error.into()),
+                Err(error) => Err(error),
             };
 
             break final_command_result;
