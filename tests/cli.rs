@@ -169,3 +169,19 @@ fn fails_on_one_attempt() {
             "Could not connect to server Timeout Test Server after 1 attempt",
         ));
 }
+
+#[test]
+fn fails_when_final_command_exits_non_zero() {
+    let mut command = Command::cargo_bin("server-runner").unwrap();
+
+    command
+        .arg("-c")
+        .arg("tests/failing_command.yaml")
+        .arg("-a")
+        .arg("5")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Command false failed with exit status",
+        ));
+}

@@ -135,7 +135,11 @@ fn run(args: Args) -> anyhow::Result<()> {
 
             info!("Running command {}", command);
 
-            process.wait()?;
+            let status = process.wait()?;
+
+            if !status.success() {
+                bail!("Command {} failed with exit status {}", command, status);
+            }
 
             info!("Command {} finished successfully", command);
 

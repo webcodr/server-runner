@@ -1,0 +1,6 @@
+servers:
+  - name: "Ready Server"
+    url: "http://127.0.0.1:8123"
+    command: 'python3 -c "import socket;s=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);s.bind((\"127.0.0.1\",8123));s.listen(1);c,_=s.accept();c.recv(1024);c.sendall(b\"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK\");c.close();s.close()"'
+    timeout: 1
+command: "false"
