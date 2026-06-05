@@ -263,6 +263,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
 
 [[package]]
+name = "command-group"
+version = "5.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a68fa787550392a9d58f44c21a3022cfb3ea3e2458b7f85d3b399d0ceeccf409"
+dependencies = [
+ "nix 0.27.1",
+ "winapi",
+]
+
+[[package]]
 name = "config"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -357,7 +367,7 @@ version = "3.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46f93780a459b7d656ef7f071fe699c4d3d2cb201c4b24d085b6ddc505276e73"
 dependencies = [
- "nix",
+ "nix 0.30.1",
  "windows-sys 0.59.0",
 ]
 
@@ -1018,6 +1028,17 @@ dependencies = [
 
 [[package]]
 name = "nix"
+version = "0.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2eb04e9c688eff1c89d72b407f168cf79bb9e867a9d3323ed6c01519eb9cc053"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
+name = "nix"
 version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
@@ -1535,6 +1556,7 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "clap",
+ "command-group",
  "config",
  "ctrlc",
  "log",
@@ -2112,6 +2134,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "winapi"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
+dependencies = [
+ "winapi-i686-pc-windows-gnu",
+ "winapi-x86_64-pc-windows-gnu",
+]
+
+[[package]]
+name = "winapi-i686-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
+
+[[package]]
 name = "winapi-util"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2119,6 +2157,12 @@ checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "winapi-x86_64-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windows-link"

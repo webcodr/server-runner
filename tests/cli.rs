@@ -210,6 +210,61 @@ fn stops_servers_when_final_command_cannot_spawn() {
     assert_port_released("127.0.0.1:8124");
 }
 
+#[cfg(unix)]
+#[test]
+fn stops_descendant_processes_when_server_never_becomes_ready() {
+    use std::fs;
+
+    let marker = "/tmp/server-runner-descendant-marker";
+    let config = "/tmp/server-runner-descendant.yaml";
+    let script = "/tmp/server-runner-descendant.sh";
+    let _ = fs::remove_file(marker);
+
+    fs::write(
+        script,
+        format!(
+            "#!/bin/sh\ntrap \"\" HUP\nsleep 30 </dev/null >/dev/null 2>&1 &\necho $! > {marker}\nwait\n"
+        ),
+    )
+    .unwrap();
+
+    fs::write(
+        config,
+        format!(
+            "servers:\n  - name: \"Descendant Server\"\n    url: \"http://localhost:9997\"\n    command: \"sh {script}\"\n    timeout: 1\ncommand: \"echo done\"\n"
+        ),
+    )
+    .unwrap();
+
+    let mut command = Command::cargo_bin("server-runner").unwrap();
+
+    command
+        .arg("-c")
+        .arg(config)
+        .arg("-a")
+        .arg("2")
+        .assert()
+        .failure();
+
+    thread::sleep(Duration::from_millis(250));
+
+    let pid = fs::read_to_string(marker).unwrap();
+    let still_running = std::process::Command::new("kill")
+        .arg("-0")
+        .arg(pid.trim())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+
+    assert!(
+        !still_running,
+        "descendant process {} was still running",
+        pid.trim()
+    );
+}
+
 fn assert_port_released(addr: &str) {
     if TcpListener::bind(addr).is_ok() {
         return;
