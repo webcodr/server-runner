@@ -111,7 +111,7 @@ fn run(args: Args) -> anyhow::Result<()> {
         std::process::exit(0);
     })?;
 
-    loop {
+    let final_command_result = loop {
         let mut ready = true;
 
         for server in &servers {
@@ -135,23 +135,29 @@ fn run(args: Args) -> anyhow::Result<()> {
 
             info!("Running command {}", command);
 
-            let status = process.wait()?;
+            let final_command_result = match process.wait() {
+                Ok(status) if status.success() => {
+                    info!("Command {} finished successfully", command);
 
-            if !status.success() {
-                bail!("Command {} failed with exit status {}", command, status);
-            }
+                    Ok(())
+                }
+                Ok(status) => Err(anyhow::anyhow!(
+                    "Command {} failed with exit status {}",
+                    command,
+                    status
+                )),
+                Err(error) => Err(error.into()),
+            };
 
-            info!("Command {} finished successfully", command);
-
-            break;
+            break final_command_result;
         }
 
         thread::sleep(Duration::from_secs(1));
-    }
+    };
 
     stop_servers(&mut server_processes_arc_mutex.lock())?;
 
-    Ok(())
+    final_command_result
 }
 
 fn get_config(filename: &str) -> anyhow::Result<Config> {
