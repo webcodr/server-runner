@@ -1,8 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-use std::io::Write;
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
 
@@ -193,13 +192,27 @@ fn fails_when_final_command_exits_non_zero() {
     assert_port_released("127.0.0.1:8123");
 }
 
+#[test]
+fn stops_servers_when_final_command_cannot_spawn() {
+    let mut command = Command::cargo_bin("server-runner").unwrap();
+
+    command
+        .arg("-c")
+        .arg("tests/missing_final_command.yaml")
+        .arg("-a")
+        .arg("5")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Could not start process definitely-not-a-real-command-for-server-runner",
+        ));
+
+    assert_port_released("127.0.0.1:8124");
+}
+
 fn assert_port_released(addr: &str) {
     if TcpListener::bind(addr).is_ok() {
         return;
-    }
-
-    if let Ok(mut stream) = TcpStream::connect(addr) {
-        let _ = stream.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
     }
 
     for _ in 0..10 {
