@@ -1,6 +1,11 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
+use std::io::Write;
+use std::net::{TcpListener, TcpStream};
+use std::thread;
+use std::time::Duration;
+
 #[test]
 fn runs() {
     let mut command = Command::cargo_bin("server-runner").unwrap();
@@ -184,4 +189,24 @@ fn fails_when_final_command_exits_non_zero() {
         .stderr(predicate::str::contains(
             "Command false failed with exit status",
         ));
+
+    assert_port_released("127.0.0.1:8123");
+}
+
+fn assert_port_released(addr: &str) {
+    if let Err(error) = TcpListener::bind(addr) {
+        if let Ok(mut stream) = TcpStream::connect(addr) {
+            let _ = stream.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        }
+
+        for _ in 0..10 {
+            if TcpListener::bind(addr).is_ok() {
+                break;
+            }
+
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        panic!("server process still listening on {addr}: {error}");
+    }
 }
