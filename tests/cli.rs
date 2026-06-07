@@ -272,6 +272,36 @@ fn stops_descendant_processes_when_server_never_becomes_ready() {
     let _ = fs::remove_file(&script);
 }
 
+#[test]
+fn rejects_non_http_readiness_urls() {
+    let mut command = Command::cargo_bin("server-runner").unwrap();
+
+    command
+        .arg("-c")
+        .arg("tests/invalid_url.yaml")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Readiness URL for server Invalid URL Server must use http or https",
+        ));
+}
+
+#[test]
+fn does_not_follow_readiness_redirects() {
+    let mut command = Command::cargo_bin("server-runner").unwrap();
+
+    command
+        .arg("-c")
+        .arg("tests/redirect_url.yaml")
+        .arg("-a")
+        .arg("5")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Could not connect to server Redirect Server after 5 attempts",
+        ));
+}
+
 fn assert_port_released(addr: &str) {
     if TcpListener::bind(addr).is_ok() {
         return;

@@ -41,6 +41,19 @@ fn default_timeout() -> u64 {
     5
 }
 
+fn validate_readiness_url(server_name: &str, url: &str) -> anyhow::Result<()> {
+    let parsed = reqwest::Url::parse(url)
+        .with_context(|| format!("Readiness URL for server {} is invalid", server_name))?;
+
+    match parsed.scheme() {
+        "http" | "https" => Ok(()),
+        _ => bail!(
+            "Readiness URL for server {} must use http or https",
+            server_name
+        ),
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct Config {
     servers: Vec<Server>,
@@ -198,6 +211,10 @@ fn get_config(filename: &str) -> anyhow::Result<Config> {
         bail!("Configuration must include a command to run");
     }
 
+    for server in &config.servers {
+        validate_readiness_url(&server.name, &server.url)?;
+    }
+
     Ok(config)
 }
 
@@ -318,6 +335,7 @@ fn check_server(
 
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(*timeout))
+        .redirect(reqwest::redirect::Policy::none())
         .build()?;
 
     let result = match client.get(url).send() {
