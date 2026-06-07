@@ -1,6 +1,6 @@
 servers:
   - name: "Test Server"
     url: "http://localhost:3000"
-    command: "simple-http-server -p 3000 -i -s"
+    command: "echo 'fake server'"
 command: "echo test"
 [invalid yaml syntax: unclosed bracket
