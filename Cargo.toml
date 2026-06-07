@@ -14,7 +14,7 @@ description = "Runs servers, checks for HTTP 200 and runs a command when all ser
 [dependencies]
 anyhow = "1.0.98"
 clap = { version = "4.5.39", features = ["derive"] }
-command-group = "5.0.1"
+command-group = { version = "5.0.1", features = ["with-tokio"] }
 config = { version = "0.15.11", default-features = false, features = ["yaml"] }
 ctrlc = "3.4.7"
 log = "0.4.27"
@@ -25,6 +25,7 @@ reqwest = { version = "0.12.19", default-features = false, features = [
 serde = { version = "1", features = ["derive"] }
 shlex = "1.3.0"
 simplelog = "0.12.2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "sync", "io-util"] }
 
 [dev-dependencies]
 assert_cmd = "2.0.17"
