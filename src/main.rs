@@ -12,24 +12,13 @@ use std::sync::{Arc, LockResult, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
+mod cli;
 mod config;
+use cli::Args;
 use config::{Config, Server, get_config};
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-#[derive(Parser)]
-#[command(version)]
-struct Args {
-    #[arg(short, long, default_value = "servers.yaml")]
-    config: String,
-
-    #[arg(short, long, default_value_t = false)]
-    verbose: bool,
-
-    #[arg(short, long, default_value_t = 10, value_parser = clap::value_parser!(u8).range(1..=255))]
-    attempts: u8,
-}
 
 struct ServerProcess {
     name: String,
