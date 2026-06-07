@@ -149,12 +149,10 @@ fn fails_on_zero_timeout() {
     command
         .arg("-c")
         .arg("tests/zero_timeout.yaml")
-        .arg("-a")
-        .arg("1")
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Could not connect to server Zero Timeout Server after 1 attempt",
+            "Timeout for server Zero Timeout Server must be between 1 and 300 seconds",
         ));
 }
 
@@ -299,6 +297,34 @@ fn does_not_follow_readiness_redirects() {
         .failure()
         .stderr(predicate::str::contains(
             "Could not connect to server Redirect Server after 5 attempts",
+        ));
+}
+
+#[test]
+fn rejects_zero_attempts() {
+    let mut command = Command::cargo_bin("server-runner").unwrap();
+
+    command
+        .arg("-a")
+        .arg("0")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid value '0'"));
+}
+
+#[test]
+fn rejects_unreasonably_large_timeout() {
+    let mut command = Command::cargo_bin("server-runner").unwrap();
+
+    command
+        .arg("-c")
+        .arg("tests/huge_timeout.yaml")
+        .arg("-a")
+        .arg("1")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Timeout for server Huge Timeout Server must be between 1 and 300 seconds",
         ));
 }
 

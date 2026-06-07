@@ -1,0 +1,6 @@
+servers:
+  - name: "Huge Timeout Server"
+    url: "http://localhost:9996"
+    command: "echo 'fake server'"
+    timeout: 86400
+command: "echo done"
