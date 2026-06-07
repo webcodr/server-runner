@@ -64,6 +64,7 @@ config = { version = "0.15.11", default-features = false, features = ["yaml"] }
 ctrlc = "3.4.7"
 log = "0.4.27"
 reqwest = { version = "0.12.19", default-features = false, features = [
+    "blocking",
     "native-tls-vendored",
 ] }
 serde = { version = "1", features = ["derive"] }
@@ -72,15 +73,12 @@ simplelog = "0.12.2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "sync", "io-util"] }
 ```
 
-Notes: `reqwest` drops `"blocking"` (now uses the default async client). `command-group` gains `"with-tokio"` for `AsyncCommandGroup`.
+Notes: `reqwest` keeps `"blocking"` for now so the legacy `main.rs` keeps compiling through Tasks 2–7; the async client is available alongside it once tokio is present. The `"blocking"` feature is removed in Task 8 once the legacy code is gone. `command-group` gains `"with-tokio"` for `AsyncCommandGroup`.
 
 - [ ] **Step 2: Verify it resolves and still builds**
 
 Run: `cargo build`
-Expected: builds successfully (existing sync `main.rs` still compiles; `reqwest::blocking` is gone so this will FAIL to compile if `main.rs` still references it — if so, this task is correctly sequenced before the code changes only when the next tasks land in the same branch). To keep the tree compiling, instead run:
-
-Run: `cargo metadata --format-version 1 > /dev/null`
-Expected: exits 0 (dependency graph resolves). Full `cargo build` is restored to green in Task 8.
+Expected: builds successfully — the existing sync `main.rs` still compiles (blocking feature retained) and tokio is now available.
 
 - [ ] **Step 3: Commit**
 
@@ -683,6 +681,7 @@ git commit -m "feat: async final command runner with output capture"
 - Create: `src/core/mod.rs` additions (Engine)
 - Create: `src/runner/mod.rs`, `src/runner/plain.rs`
 - Modify: `src/main.rs` (delete old sync logic, become tokio bootstrap)
+- Modify: `Cargo.toml` (remove now-unused `reqwest` `"blocking"` feature)
 
 - [ ] **Step 1: Add the `Engine` to `src/core/mod.rs`**
 
@@ -910,6 +909,16 @@ async fn async_main(args: Args) -> anyhow::Result<()> {
 ```
 
 > **Ctrl+C note:** the legacy code installed a `ctrlc` handler that killed servers then exited. With tokio we use `tokio::signal::ctrl_c()` inside `select!`. Because the plain runner owns the `Engine` (and thus the `ServerProcess` group children), add a `Drop`-based safety net in a follow-up if needed; for the existing test suite (which never sends SIGINT) this is sufficient. The `ctrlc` dependency may be dropped once `tokio::signal` fully replaces it — keep it for now to avoid widening scope.
+
+- [ ] **Step 4b: Remove the now-unused `blocking` reqwest feature**
+
+The legacy `reqwest::blocking` usage is gone after Step 4. In `Cargo.toml`, change the `reqwest` dependency back to async-only:
+
+```toml
+reqwest = { version = "0.12.19", default-features = false, features = [
+    "native-tls-vendored",
+] }
+```
 
 - [ ] **Step 5: Run the full test suite**
 
