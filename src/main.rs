@@ -14,6 +14,8 @@ use std::{env, fmt};
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const MIN_TIMEOUT_SECONDS: u64 = 1;
+const MAX_TIMEOUT_SECONDS: u64 = 300;
 
 #[derive(Parser)]
 #[command(version)]
@@ -24,7 +26,7 @@ struct Args {
     #[arg(short, long, default_value_t = false)]
     verbose: bool,
 
-    #[arg(short, long, default_value_t = 10)]
+    #[arg(short, long, default_value_t = 10, value_parser = clap::value_parser!(u8).range(1..=255))]
     attempts: u8,
 }
 
@@ -54,6 +56,19 @@ fn validate_readiness_url(server_name: &str, url: &str) -> anyhow::Result<()> {
     }
 }
 
+fn validate_server_timeout(server_name: &str, timeout: u64) -> anyhow::Result<()> {
+    if !(MIN_TIMEOUT_SECONDS..=MAX_TIMEOUT_SECONDS).contains(&timeout) {
+        bail!(
+            "Timeout for server {} must be between {} and {} seconds",
+            server_name,
+            MIN_TIMEOUT_SECONDS,
+            MAX_TIMEOUT_SECONDS
+        );
+    }
+
+    Ok(())
+}
+
 #[derive(serde::Deserialize)]
 struct Config {
     servers: Vec<Server>,
@@ -76,7 +91,7 @@ struct Attempts(u8);
 
 impl AddAssign<u8> for Attempts {
     fn add_assign(&mut self, other: u8) {
-        self.0 = self.0.wrapping_add(other);
+        self.0 = self.0.saturating_add(other);
     }
 }
 
@@ -212,6 +227,7 @@ fn get_config(filename: &str) -> anyhow::Result<Config> {
     }
 
     for server in &config.servers {
+        validate_server_timeout(&server.name, server.timeout)?;
         validate_readiness_url(&server.name, &server.url)?;
     }
 
@@ -314,7 +330,7 @@ fn check_server(
         .and_modify(|attempts| *attempts += 1)
         .or_insert(Attempts(1));
 
-    if *attempts == max_attempts {
+    if attempts.0 >= max_attempts {
         let attempt_word = if max_attempts == 1 {
             "attempt"
         } else {
