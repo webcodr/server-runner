@@ -1,0 +1,6 @@
+servers:
+  - name: "Redirect Server"
+    url: "http://127.0.0.1:8125"
+    command: "python3 tests/redirect_server.py"
+    timeout: 1
+command: "echo done"

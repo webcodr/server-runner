@@ -1,0 +1,6 @@
+servers:
+  - name: "Invalid URL Server"
+    url: "file:///etc/passwd"
+    command: "echo 'fake server'"
+    timeout: 1
+command: "echo done"
