@@ -42,6 +42,12 @@ server-runner -c config.yaml -v -a 15
 
 The configuration file is written in YAML format and defines the servers to start and the command to run when all servers are ready.
 
+### Security Model
+
+Treat configuration files as trusted executable input. Server Runner starts each `servers[].command` and the final `command` on the local machine with the same privileges as the current user. Do not run configuration files from untrusted pull requests, downloaded archives, or user submissions unless they have been reviewed.
+
+Readiness URLs are intended for local test services. Server Runner accepts only `http` and `https` readiness URLs and does not follow redirects during readiness checks.
+
 ### Example Configuration
 
 ~~~ yaml
@@ -65,9 +71,9 @@ command: "npm test"
 
 Each server requires:
 - `name`: Display name for the server
-- `url`: HTTP endpoint to check for availability (must return HTTP 200 when ready)
+- `url`: HTTP or HTTPS endpoint to check for availability; redirects are not followed, and the endpoint must return a 2xx response when ready
 - `command`: Shell command to start the server
-- `timeout`: (optional) HTTP request timeout in seconds (default: 5)
+- `timeout`: (optional) HTTP request timeout in seconds, from 1 to 300 (default: 5)
 
 **command** (required): Command to execute when all servers are ready
 
