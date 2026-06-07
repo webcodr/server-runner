@@ -3,6 +3,7 @@ use clap::Parser;
 use command_group::{CommandGroup, GroupChild};
 use log::info;
 use std::collections::HashMap;
+use std::fmt;
 use std::ops::AddAssign;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -10,12 +11,12 @@ use std::process::{Child, Command};
 use std::sync::{Arc, LockResult, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
-use std::{env, fmt};
+
+mod config;
+use config::{Config, Server, get_config};
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-const MIN_TIMEOUT_SECONDS: u64 = 1;
-const MAX_TIMEOUT_SECONDS: u64 = 300;
 
 #[derive(Parser)]
 #[command(version)]
@@ -28,51 +29,6 @@ struct Args {
 
     #[arg(short, long, default_value_t = 10, value_parser = clap::value_parser!(u8).range(1..=255))]
     attempts: u8,
-}
-
-#[derive(serde::Deserialize)]
-struct Server {
-    name: String,
-    url: String,
-    command: String,
-    #[serde(default = "default_timeout")]
-    timeout: u64,
-}
-
-fn default_timeout() -> u64 {
-    5
-}
-
-fn validate_readiness_url(server_name: &str, url: &str) -> anyhow::Result<()> {
-    let parsed = reqwest::Url::parse(url)
-        .with_context(|| format!("Readiness URL for server {} is invalid", server_name))?;
-
-    match parsed.scheme() {
-        "http" | "https" => Ok(()),
-        _ => bail!(
-            "Readiness URL for server {} must use http or https",
-            server_name
-        ),
-    }
-}
-
-fn validate_server_timeout(server_name: &str, timeout: u64) -> anyhow::Result<()> {
-    if !(MIN_TIMEOUT_SECONDS..=MAX_TIMEOUT_SECONDS).contains(&timeout) {
-        bail!(
-            "Timeout for server {} must be between {} and {} seconds",
-            server_name,
-            MIN_TIMEOUT_SECONDS,
-            MAX_TIMEOUT_SECONDS
-        );
-    }
-
-    Ok(())
-}
-
-#[derive(serde::Deserialize)]
-struct Config {
-    servers: Vec<Server>,
-    command: String,
 }
 
 struct ServerProcess {
@@ -194,44 +150,6 @@ fn run(args: Args) -> anyhow::Result<()> {
     stop_servers(&mut server_processes_arc_mutex.lock())?;
 
     final_command_result
-}
-
-fn get_config(filename: &str) -> anyhow::Result<Config> {
-    let cwd = env::current_dir()?;
-    let tmp_path = cwd.join(filename);
-    let config_file_path = tmp_path.to_str().context(format!(
-        "Could not create String from Path {}",
-        tmp_path.display()
-    ))?;
-
-    info!("Loading config file {}", config_file_path);
-
-    let settings = config::Config::builder()
-        .add_source(config::File::new(
-            config_file_path,
-            config::FileFormat::Yaml,
-        ))
-        .build()
-        .context(format!("Could not find config file {}", filename))?;
-
-    let config = settings
-        .try_deserialize::<Config>()
-        .context(format!("Could not parse config file {}", filename))?;
-
-    if config.servers.is_empty() {
-        bail!("Configuration must include at least one server");
-    }
-
-    if config.command.trim().is_empty() {
-        bail!("Configuration must include a command to run");
-    }
-
-    for server in &config.servers {
-        validate_server_timeout(&server.name, server.timeout)?;
-        validate_readiness_url(&server.name, &server.url)?;
-    }
-
-    Ok(config)
 }
 
 fn start_servers(servers: &Vec<Server>) -> anyhow::Result<Vec<ServerProcess>> {
