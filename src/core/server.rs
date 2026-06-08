@@ -1,8 +1,9 @@
 use anyhow::bail;
 use command_group::{AsyncCommandGroup, AsyncGroupChild};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
+use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
 use crate::core::state::RingBuffer;
@@ -37,16 +38,15 @@ pub fn build_command(command: &str) -> anyhow::Result<Command> {
 }
 
 /// A running server process group plus its captured log buffer.
-#[allow(dead_code)] // consumed in Task 8
 pub struct ServerProcess {
     pub name: String,
+    #[allow(dead_code)] // read by AppState in Task 9
     pub log: Arc<Mutex<RingBuffer>>,
     child: AsyncGroupChild,
 }
 
 impl ServerProcess {
     /// Spawn the server as a process group and start capturing its stdout/stderr.
-    #[allow(dead_code)] // consumed in Task 8
     pub fn spawn(name: &str, command: &str) -> anyhow::Result<Self> {
         let mut cmd = build_command(command)?;
         let mut child = cmd.group_spawn()?;
@@ -55,10 +55,10 @@ impl ServerProcess {
         // Take the piped streams from the inner tokio Child before handing
         // ownership of `child` to the struct. `.inner()` gives `&mut Child`.
         if let Some(stdout) = child.inner().stdout.take() {
-            spawn_reader(stdout, Arc::clone(&log));
+            spawn_reader(stdout, Arc::clone(&log), false);
         }
         if let Some(stderr) = child.inner().stderr.take() {
-            spawn_reader(stderr, Arc::clone(&log));
+            spawn_reader(stderr, Arc::clone(&log), true);
         }
 
         Ok(Self {
@@ -69,25 +69,61 @@ impl ServerProcess {
     }
 
     /// Kill the process group (kill includes wait internally).
-    #[allow(dead_code)] // consumed in Task 8
     pub async fn stop(&mut self) -> anyhow::Result<()> {
         self.child
             .kill()
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to stop process {}: {}", self.name, e))
+            .map_err(|_| anyhow::anyhow!("Failed to stop process {}", self.name))
     }
 }
 
-fn spawn_reader<R>(stream: R, log: Arc<Mutex<RingBuffer>>)
+fn spawn_reader<R>(mut stream: R, log: Arc<Mutex<RingBuffer>>, stderr: bool)
 where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     tokio::spawn(async move {
-        let mut lines = BufReader::new(stream).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            if let Ok(mut buf) = log.lock() {
-                buf.push(line);
+        let mut buf = [0; 8192];
+        let mut line = String::new();
+
+        while let Ok(n) = stream.read(&mut buf).await {
+            if n == 0 {
+                break;
             }
+
+            write_output(&buf[..n], stderr);
+
+            capture_lines(&buf[..n], &mut line, &log);
+        }
+
+        if !line.is_empty()
+            && let Ok(mut buf) = log.lock()
+        {
+            buf.push(std::mem::take(&mut line));
         }
     });
+}
+
+fn write_output(bytes: &[u8], stderr: bool) {
+    if stderr {
+        let mut stream = io::stderr().lock();
+        let _ = stream.write_all(bytes);
+        let _ = stream.flush();
+    } else {
+        let mut stream = io::stdout().lock();
+        let _ = stream.write_all(bytes);
+        let _ = stream.flush();
+    }
+}
+
+fn capture_lines(bytes: &[u8], line: &mut String, log: &Arc<Mutex<RingBuffer>>) {
+    for ch in String::from_utf8_lossy(bytes).chars() {
+        if ch == '\n' {
+            if let Ok(mut buf) = log.lock() {
+                buf.push(line.trim_end_matches('\r').to_string());
+            }
+            line.clear();
+        } else {
+            line.push(ch);
+        }
+    }
 }

@@ -1,7 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::thread;
 use std::time::Duration;
 
@@ -270,6 +270,78 @@ fn stops_descendant_processes_when_server_never_becomes_ready() {
     let _ = fs::remove_file(&script);
 }
 
+#[cfg(unix)]
+#[test]
+fn stops_servers_on_ctrl_c() {
+    use std::fs;
+
+    let suffix = std::process::id();
+    let config = format!("/tmp/server-runner-ctrl-c-{suffix}.yaml");
+    let _cleanup = RemoveFileOnDrop(config.clone());
+    let port = 8126;
+    let addr = format!("127.0.0.1:{port}");
+
+    fs::write(
+        &config,
+        format!(
+            "servers:\n  - name: \"Interrupt Server\"\n    url: \"http://127.0.0.1:{port}\"\n    command: \"python3 -m http.server {port} --bind 127.0.0.1\"\n    timeout: 1\ncommand: \"sleep 30\"\n"
+        ),
+    )
+    .unwrap();
+
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("server-runner"))
+        .arg("-c")
+        .arg(&config)
+        .spawn()
+        .unwrap();
+
+    assert_port_opens(&addr);
+
+    let interrupt = std::process::Command::new("kill")
+        .arg("-INT")
+        .arg(child.id().to_string())
+        .status()
+        .unwrap();
+    assert!(interrupt.success());
+
+    let status = child.wait().unwrap();
+    assert!(status.success());
+
+    assert_port_released(&addr);
+}
+
+#[test]
+fn preserves_final_command_stdout_and_stderr() {
+    use std::fs;
+
+    let suffix = std::process::id();
+    let config = format!("/tmp/server-runner-final-output-{suffix}.yaml");
+    let _cleanup = RemoveFileOnDrop(config.clone());
+    let port = 8127;
+
+    fs::write(
+        &config,
+        format!(
+            "servers:\n  - name: \"Output Server\"\n    url: \"http://127.0.0.1:{port}\"\n    command: \"python3 -m http.server {port} --bind 127.0.0.1\"\n    timeout: 1\ncommand: \"sh -c 'echo final-out; echo final-err >&2'\"\n"
+        ),
+    )
+    .unwrap();
+
+    let mut command = Command::cargo_bin("server-runner").unwrap();
+
+    command
+        .arg("-c")
+        .arg(&config)
+        .arg("-a")
+        .arg("5")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("final-out"))
+        .stderr(predicate::str::contains("final-err"));
+
+    assert_port_released(&format!("127.0.0.1:{port}"));
+}
+
 #[test]
 fn rejects_non_http_readiness_urls() {
     let mut command = Command::cargo_bin("server-runner").unwrap();
@@ -342,4 +414,24 @@ fn assert_port_released(addr: &str) {
     }
 
     panic!("server process still listening on {addr}");
+}
+
+fn assert_port_opens(addr: &str) {
+    for _ in 0..50 {
+        if TcpStream::connect(addr).is_ok() {
+            return;
+        }
+
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    panic!("server process did not start listening on {addr}");
+}
+
+struct RemoveFileOnDrop(String);
+
+impl Drop for RemoveFileOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
