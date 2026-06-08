@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::fmt;
 use std::ops::AddAssign;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ServerStatus {
@@ -73,6 +74,38 @@ impl RingBuffer {
     }
 }
 
+#[allow(dead_code)] // used by TUI in Plan 2
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FinalCmdStatus {
+    Idle,
+    Running,
+    Succeeded(i32),
+    Failed(i32),
+}
+
+#[allow(dead_code)] // used by TUI in Plan 2
+pub struct ServerView {
+    pub name: String,
+    pub url: String,
+    pub status: ServerStatus,
+    pub attempts: Attempts,
+    pub log: Arc<Mutex<RingBuffer>>,
+}
+
+#[allow(dead_code)] // used by TUI in Plan 2
+pub struct FinalCmdView {
+    pub command: String,
+    pub status: FinalCmdStatus,
+    pub log: Arc<Mutex<RingBuffer>>,
+}
+
+/// Shared, render-friendly snapshot of the engine, owned behind Arc<Mutex<_>>.
+#[allow(dead_code)] // used by TUI in Plan 2
+pub struct AppState {
+    pub servers: Vec<ServerView>,
+    pub final_cmd: FinalCmdView,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,5 +128,16 @@ mod tests {
         assert_eq!(rb.len(), 2);
         let got: Vec<_> = rb.iter().cloned().collect();
         assert_eq!(got, vec!["b".to_string(), "c".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod app_state_tests {
+    use super::*;
+
+    #[test]
+    fn final_cmd_status_equality() {
+        assert_eq!(FinalCmdStatus::Succeeded(0), FinalCmdStatus::Succeeded(0));
+        assert_ne!(FinalCmdStatus::Succeeded(0), FinalCmdStatus::Failed(1));
     }
 }
