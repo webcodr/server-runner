@@ -3,8 +3,6 @@ use clap::Parser;
 use command_group::{CommandGroup, GroupChild};
 use log::info;
 use std::collections::HashMap;
-use std::fmt;
-use std::ops::AddAssign;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command};
@@ -14,8 +12,10 @@ use std::time::Duration;
 
 mod cli;
 mod config;
+mod core;
 use cli::Args;
 use config::{Config, Server, get_config};
+use core::state::{Attempts, ServerName, ServerStatus};
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -24,36 +24,6 @@ struct ServerProcess {
     name: String,
     process: GroupChild,
 }
-
-#[derive(PartialEq, Eq)]
-enum ServerStatus {
-    Waiting,
-    Running,
-}
-
-#[derive(Copy, Clone, Debug)]
-struct Attempts(u8);
-
-impl AddAssign<u8> for Attempts {
-    fn add_assign(&mut self, other: u8) {
-        self.0 = self.0.saturating_add(other);
-    }
-}
-
-impl fmt::Display for Attempts {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl PartialEq<u8> for Attempts {
-    fn eq(&self, other: &u8) -> bool {
-        self.0 == *other
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct ServerName(String);
 
 fn run(args: Args) -> anyhow::Result<()> {
     let Config { servers, command } = get_config(&args.config)?;
