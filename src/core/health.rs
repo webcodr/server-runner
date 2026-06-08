@@ -6,7 +6,6 @@ use crate::core::state::ServerStatus;
 /// Perform a single readiness probe against `url`.
 /// Returns `Waiting` if the server is not yet up, `Running` on HTTP 2xx.
 /// Returns `Err` only for non-transient errors.
-#[allow(dead_code)]
 pub async fn check(name: &str, url: &str, timeout_secs: u64) -> anyhow::Result<ServerStatus> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))

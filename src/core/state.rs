@@ -2,13 +2,13 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::ops::AddAssign;
 
-// Failed/Stopped used by TUI in Plan 2
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ServerStatus {
     Waiting,
     Running,
+    #[allow(dead_code)] // used by TUI in Plan 2
     Failed,
+    #[allow(dead_code)] // used by TUI in Plan 2
     Stopped,
 }
 
@@ -37,14 +37,11 @@ impl PartialEq<u8> for Attempts {
 pub struct ServerName(pub String);
 
 /// Bounded FIFO line buffer. Oldest lines drop once `capacity` is exceeded.
-// RingBuffer consumed by TUI in Plan 2
-#[allow(dead_code)]
 pub struct RingBuffer {
     lines: VecDeque<String>,
     capacity: usize,
 }
 
-#[allow(dead_code)]
 impl RingBuffer {
     pub fn new(capacity: usize) -> Self {
         Self {
@@ -60,14 +57,17 @@ impl RingBuffer {
         self.lines.push_back(line);
     }
 
+    #[allow(dead_code)] // used by AppState in Task 9
     pub fn len(&self) -> usize {
         self.lines.len()
     }
 
+    #[allow(dead_code)] // used by AppState in Task 9
     pub fn is_empty(&self) -> bool {
         self.lines.is_empty()
     }
 
+    #[allow(dead_code)] // used by AppState in Task 9
     pub fn iter(&self) -> impl Iterator<Item = &String> {
         self.lines.iter()
     }
