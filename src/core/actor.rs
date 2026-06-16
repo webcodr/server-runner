@@ -25,10 +25,13 @@ pub async fn run_tui_engine(
 ) -> anyhow::Result<()> {
     let mut processes = Vec::with_capacity(config.servers.len());
     for server in &config.servers {
-        processes.push(ServerProcess::spawn_captured(
-            &server.name,
-            &server.command,
-        )?);
+        match ServerProcess::spawn_captured(&server.name, &server.command) {
+            Ok(process) => processes.push(process),
+            Err(error) => {
+                let _ = stop_all(&mut processes).await;
+                return Err(error);
+            }
+        }
     }
 
     let mut final_status_started = false;
@@ -130,10 +133,26 @@ fn set_final_status(state: &Arc<Mutex<AppState>>, status: FinalCmdStatus) {
 
 #[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
 async fn stop_all(processes: &mut [ServerProcess]) -> anyhow::Result<()> {
+    let mut first_error = None;
+
     for process in processes {
-        process.stop().await?;
+        if let Err(error) = process.stop().await {
+            remember_first_error(&mut first_error, error);
+        }
     }
+
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+
     Ok(())
+}
+
+#[allow(dead_code)] // used through stop_all once the TUI is wired in
+fn remember_first_error(first_error: &mut Option<anyhow::Error>, error: anyhow::Error) {
+    if first_error.is_none() {
+        *first_error = Some(error);
+    }
 }
 
 #[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
@@ -185,5 +204,15 @@ mod tests {
         let state = state.lock().unwrap();
         assert_eq!(state.servers[0].attempts, 1u8);
         assert_eq!(state.servers[0].status, ServerStatus::Failed);
+    }
+
+    #[test]
+    fn remember_first_error_preserves_original_error() {
+        let mut first = None;
+
+        super::remember_first_error(&mut first, anyhow::anyhow!("first"));
+        super::remember_first_error(&mut first, anyhow::anyhow!("second"));
+
+        assert_eq!(first.unwrap().to_string(), "first");
     }
 }
