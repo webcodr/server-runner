@@ -118,6 +118,7 @@ pub struct AppState {
 }
 
 impl AppState {
+    #[allow(dead_code)] // used by TUI in Plan 2
     pub fn new(servers: &[Server], command: &str) -> Self {
         Self {
             servers: servers
@@ -138,18 +139,16 @@ impl AppState {
         }
     }
 
+    #[allow(dead_code)] // used by TUI in Plan 2
     pub fn selectable_len(&self) -> usize {
         self.servers.len() + 1
     }
 
+    #[allow(dead_code)] // used by TUI in Plan 2
     pub fn is_final_selection(&self, selected: usize) -> bool {
         selected == self.servers.len()
     }
 }
-
-const _: fn(&[Server], &str) -> AppState = AppState::new;
-const _: fn(&AppState) -> usize = AppState::selectable_len;
-const _: fn(&AppState, usize) -> bool = AppState::is_final_selection;
 
 #[cfg(test)]
 mod tests {
