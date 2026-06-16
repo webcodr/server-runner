@@ -1,3 +1,4 @@
+pub mod actor;
 pub mod command;
 pub mod health;
 pub mod server;
