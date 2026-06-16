@@ -77,6 +77,12 @@ impl ServerProcess {
         })
     }
 
+    /// Process-group leader PID, if still available.
+    #[allow(dead_code)] // used by TUI control-command tests
+    pub fn id(&self) -> Option<u32> {
+        self.child.id()
+    }
+
     /// Kill the process group (kill includes wait internally).
     pub async fn stop(&mut self) -> anyhow::Result<()> {
         self.child
