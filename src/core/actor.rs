@@ -24,9 +24,12 @@ pub async fn run_tui_engine(
     mut commands: mpsc::Receiver<EngineCommand>,
 ) -> anyhow::Result<()> {
     let mut processes: Vec<Option<ServerProcess>> = Vec::with_capacity(config.servers.len());
-    for server in &config.servers {
+    for (idx, server) in config.servers.iter().enumerate() {
         match ServerProcess::spawn_captured(&server.name, &server.command) {
-            Ok(process) => processes.push(Some(process)),
+            Ok(process) => {
+                link_server_log(&state, idx, Arc::clone(&process.log));
+                processes.push(Some(process));
+            }
             Err(error) => {
                 let _ = stop_all(&mut processes).await;
                 return Err(error);
@@ -47,20 +50,18 @@ pub async fn run_tui_engine(
                     }
                     Some(EngineCommand::Restart(idx)) => {
                         if idx < processes.len() {
-                            if let Some(mut process) = processes[idx].take() {
-                                let _ = process.stop().await;
+                            if let Err(error) = start_server_process(
+                                &mut processes,
+                                &state,
+                                &config.servers[idx],
+                                idx,
+                                "Restarting server",
+                            )
+                            .await
+                            {
+                                stop_all(&mut processes).await?;
+                                return Err(error);
                             }
-                            match ServerProcess::spawn_captured(
-                                &config.servers[idx].name,
-                                &config.servers[idx].command,
-                            ) {
-                                Ok(process) => processes[idx] = Some(process),
-                                Err(error) => {
-                                    stop_all(&mut processes).await?;
-                                    return Err(error);
-                                }
-                            }
-                            reset_server_for_start(&state, idx, "Restarting server");
                             final_status_started = false;
                         }
                     }
@@ -71,17 +72,18 @@ pub async fn run_tui_engine(
                                 status,
                                 Some(ServerStatus::Stopped) | Some(ServerStatus::Failed)
                             ) {
-                                match ServerProcess::spawn_captured(
-                                    &config.servers[idx].name,
-                                    &config.servers[idx].command,
-                                ) {
-                                    Ok(process) => processes[idx] = Some(process),
-                                    Err(error) => {
-                                        stop_all(&mut processes).await?;
-                                        return Err(error);
-                                    }
+                                if let Err(error) = start_server_process(
+                                    &mut processes,
+                                    &state,
+                                    &config.servers[idx],
+                                    idx,
+                                    "Starting server",
+                                )
+                                .await
+                                {
+                                    stop_all(&mut processes).await?;
+                                    return Err(error);
                                 }
-                                reset_server_for_start(&state, idx, "Starting server");
                             } else {
                                 if let Some(mut process) = processes[idx].take() {
                                     let _ = process.stop().await;
@@ -152,6 +154,39 @@ fn reset_server_for_start(state: &Arc<Mutex<AppState>>, idx: usize, reason: &str
         if let Ok(mut log) = server.log.lock() {
             log.push(format!("--- {reason} ---"));
         }
+    }
+}
+
+/// Take and stop any process in the slot, spawn a fresh captured replacement,
+/// link its log into shared state, store it, and reset the server to Waiting.
+#[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
+async fn start_server_process(
+    processes: &mut [Option<ServerProcess>],
+    state: &Arc<Mutex<AppState>>,
+    server: &crate::config::Server,
+    idx: usize,
+    reason: &str,
+) -> anyhow::Result<()> {
+    if let Some(mut process) = processes[idx].take() {
+        let _ = process.stop().await;
+    }
+    let process = ServerProcess::spawn_captured(&server.name, &server.command)?;
+    link_server_log(state, idx, Arc::clone(&process.log));
+    processes[idx] = Some(process);
+    reset_server_for_start(state, idx, reason);
+    Ok(())
+}
+
+#[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
+fn link_server_log(
+    state: &Arc<Mutex<AppState>>,
+    idx: usize,
+    log: Arc<Mutex<crate::core::state::RingBuffer>>,
+) {
+    if let Ok(mut guard) = state.lock()
+        && let Some(server) = guard.servers.get_mut(idx)
+    {
+        server.log = log;
     }
 }
 
@@ -434,5 +469,83 @@ mod final_command_tests {
             state.lock().unwrap().final_cmd.status,
             FinalCmdStatus::Failed(7)
         );
+    }
+}
+
+#[cfg(all(test, unix))]
+mod command_path_tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::start_server_process;
+    use crate::core::server::ServerProcess;
+    use crate::core::state::{AppState, ServerStatus};
+
+    fn pid_alive(pid: u32) -> bool {
+        std::process::Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    #[tokio::test]
+    async fn starting_failed_server_stops_old_process() {
+        let config = crate::config::Config {
+            servers: vec![crate::config::Server {
+                name: "A".to_string(),
+                url: "http://127.0.0.1:1".to_string(),
+                command: "sh -c 'sleep 5'".to_string(),
+                timeout: 1,
+            }],
+            command: "echo done".to_string(),
+        };
+        let state = Arc::new(Mutex::new(AppState::new(&config.servers, &config.command)));
+
+        // A Failed server still owns a live process in its slot.
+        let old = ServerProcess::spawn_captured("A", "sh -c 'sleep 5'").unwrap();
+        let old_pid = old.id().expect("old process should expose a pid");
+        let mut processes: Vec<Option<ServerProcess>> = vec![Some(old)];
+        state.lock().unwrap().servers[0].status = ServerStatus::Failed;
+
+        assert!(
+            pid_alive(old_pid),
+            "old process should be alive before respawn"
+        );
+
+        start_server_process(
+            &mut processes,
+            &state,
+            &config.servers[0],
+            0,
+            "Starting server",
+        )
+        .await
+        .unwrap();
+
+        // Give the OS a moment to reap the killed group.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        assert!(
+            !pid_alive(old_pid),
+            "old process must be stopped, not leaked"
+        );
+
+        let new_pid = processes[0]
+            .as_ref()
+            .expect("a fresh process should occupy the slot")
+            .id();
+        assert!(new_pid.is_some());
+        assert_ne!(Some(old_pid), new_pid, "slot should hold a new process");
+        assert_eq!(
+            state.lock().unwrap().servers[0].status,
+            ServerStatus::Waiting
+        );
+
+        // Clean up the replacement so the test leaves no lingering process.
+        if let Some(mut process) = processes[0].take() {
+            let _ = process.stop().await;
+        }
     }
 }
