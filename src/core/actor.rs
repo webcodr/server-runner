@@ -77,15 +77,22 @@ async fn poll_servers(
 
         let status = crate::core::health::check(&server.name, &server.url, server.timeout).await?;
         if status == ServerStatus::Running {
-            if let Ok(mut state) = state.lock() {
-                state.servers[idx].status = ServerStatus::Running;
-            }
+            mark_server_running(state, idx);
         } else {
             increment_attempt_or_fail(state, idx, max_attempts);
         }
     }
 
     Ok(())
+}
+
+#[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
+fn mark_server_running(state: &Arc<Mutex<AppState>>, idx: usize) {
+    if let Ok(mut state) = state.lock()
+        && let Some(server) = state.servers.get_mut(idx)
+    {
+        server.status = ServerStatus::Running;
+    }
 }
 
 #[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
@@ -204,6 +211,15 @@ mod tests {
         let state = state.lock().unwrap();
         assert_eq!(state.servers[0].attempts, 1u8);
         assert_eq!(state.servers[0].status, ServerStatus::Failed);
+    }
+
+    #[test]
+    fn mark_server_running_ignores_missing_state_index() {
+        let state = Arc::new(Mutex::new(AppState::new(&[], "test-command")));
+
+        super::mark_server_running(&state, 0);
+
+        assert!(state.lock().unwrap().servers.is_empty());
     }
 
     #[test]
