@@ -1,3 +1,5 @@
+use crate::runner::tui::input::UiAction;
+
 #[allow(dead_code)] // used by TUI in Plan 2
 pub struct TuiApp {
     selected: usize,
@@ -87,6 +89,21 @@ impl TuiApp {
     pub fn footer_message(&self) -> Option<&str> {
         self.footer_message.as_deref()
     }
+
+    pub fn apply_action(&mut self, action: UiAction) {
+        match action {
+            UiAction::SelectNext => self.select_next(),
+            UiAction::SelectPrevious => self.select_previous(),
+            UiAction::ScrollUp(amount) => self.scroll_up(amount),
+            UiAction::ScrollDown(amount) => self.scroll_down(amount),
+            UiAction::FollowTail => self.follow_tail(),
+            UiAction::Quit => self.request_quit(),
+            UiAction::Restart
+            | UiAction::StopStart
+            | UiAction::RerunFinalCommand
+            | UiAction::None => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -132,5 +149,19 @@ mod tests {
         assert_eq!(app.footer_message(), Some("Servers are not ready"));
         app.clear_footer_message();
         assert_eq!(app.footer_message(), None);
+    }
+
+    #[test]
+    fn applies_input_actions_to_local_state() {
+        let mut app = TuiApp::new(2);
+
+        app.apply_action(crate::runner::tui::input::UiAction::SelectNext);
+        assert_eq!(app.selected(), 1);
+        app.apply_action(crate::runner::tui::input::UiAction::ScrollUp(3));
+        assert_eq!(app.scroll_offset(), 3);
+        app.apply_action(crate::runner::tui::input::UiAction::FollowTail);
+        assert_eq!(app.scroll_offset(), 0);
+        app.apply_action(crate::runner::tui::input::UiAction::Quit);
+        assert!(app.should_quit());
     }
 }
