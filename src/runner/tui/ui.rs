@@ -30,7 +30,8 @@ pub fn render(frame: &mut Frame, tui: &TuiApp, state: &Arc<Mutex<AppState>>) {
         body[0],
     );
 
-    let detail = selected_log(tui, &state).join("\n");
+    let detail_height = body[1].height.saturating_sub(2) as usize;
+    let detail = selected_log(tui, &state, detail_height).join("\n");
     frame.render_widget(
         Paragraph::new(detail).block(Block::bordered().title("log")),
         body[1],
@@ -38,7 +39,7 @@ pub fn render(frame: &mut Frame, tui: &TuiApp, state: &Arc<Mutex<AppState>>) {
 
     let footer = tui
         .footer_message()
-        .unwrap_or("q quit | j/k select | PgUp/PgDn scroll | End tail");
+        .unwrap_or("j/k select | PgUp/PgDn scroll | r restart | s stop/start | e rerun | q quit");
     frame.render_widget(Paragraph::new(footer), root[1]);
 }
 
@@ -59,11 +60,10 @@ fn sidebar_items(tui: &TuiApp, state: &AppState) -> Vec<String> {
 
 fn server_item(index: usize, selected: usize, server: &ServerView) -> String {
     format!(
-        "{} {:<4} {:<12} {}",
+        "{} {:<6} {}",
         selection_marker(index, selected),
-        server_status(server.status),
-        server.name,
-        server.attempts
+        server_status(server.status, server.attempts),
+        server.name
     )
 }
 
@@ -80,12 +80,12 @@ fn selection_marker(index: usize, selected: usize) -> &'static str {
     if index == selected { ">" } else { " " }
 }
 
-fn server_status(status: ServerStatus) -> &'static str {
+fn server_status(status: ServerStatus, attempts: crate::core::state::Attempts) -> String {
     match status {
-        ServerStatus::Waiting => "WAIT",
-        ServerStatus::Running => "RUN",
-        ServerStatus::Failed => "FAIL",
-        ServerStatus::Stopped => "STOP",
+        ServerStatus::Waiting => format!("WAIT {attempts}"),
+        ServerStatus::Running => "RUN".to_string(),
+        ServerStatus::Failed => "FAIL".to_string(),
+        ServerStatus::Stopped => "STOP".to_string(),
     }
 }
 
@@ -98,24 +98,31 @@ fn final_cmd_status(status: FinalCmdStatus) -> String {
     }
 }
 
-fn selected_log(tui: &TuiApp, state: &AppState) -> Vec<String> {
+fn selected_log(tui: &TuiApp, state: &AppState, height: usize) -> Vec<String> {
     if state.is_final_selection(tui.selected()) {
-        return log_lines(&state.final_cmd.log);
+        return log_lines(&state.final_cmd.log, tui.scroll_offset(), height);
     }
 
     state
         .servers
         .get(tui.selected())
-        .map(|server| log_lines(&server.log))
+        .map(|server| log_lines(&server.log, tui.scroll_offset(), height))
         .unwrap_or_default()
 }
 
-fn log_lines(log: &Arc<Mutex<RingBuffer>>) -> Vec<String> {
+fn log_lines(log: &Arc<Mutex<RingBuffer>>, scroll_offset: usize, height: usize) -> Vec<String> {
     let Ok(log) = log.lock() else {
         return Vec::new();
     };
 
-    log.iter().cloned().collect()
+    let lines: Vec<String> = log.iter().cloned().collect();
+    if height == 0 || lines.is_empty() {
+        return Vec::new();
+    }
+
+    let end = lines.len().saturating_sub(scroll_offset).max(1);
+    let start = end.saturating_sub(height);
+    lines[start..end].to_vec()
 }
 
 #[cfg(test)]
@@ -174,6 +181,10 @@ mod tests {
         buffer_to_string(terminal.backend().buffer())
     }
 
+    fn rendered_line<'a>(output: &'a str, needle: &str) -> &'a str {
+        output.lines().find(|line| line.contains(needle)).unwrap()
+    }
+
     #[allow(deprecated)]
     fn buffer_to_string(buffer: &Buffer) -> String {
         let mut output = String::new();
@@ -201,6 +212,56 @@ mod tests {
         assert!(output.contains("npm test"));
         assert!(output.contains("OK 0"));
         assert!(output.contains("api ready"));
+
+        assert!(!rendered_line(&output, "API").contains("2"));
+        assert!(!rendered_line(&output, "Worker").contains("5"));
+    }
+
+    #[test]
+    fn renders_wait_status_with_attempts() {
+        let state = sample_state();
+        state.lock().unwrap().servers[0].status = ServerStatus::Waiting;
+        let tui = TuiApp::new(2);
+
+        let output = render_to_string(&tui, &state);
+
+        assert!(rendered_line(&output, "API").contains("WAIT 2"));
+    }
+
+    #[test]
+    fn scroll_offset_renders_older_log_window() {
+        let state = sample_state();
+        {
+            let mut state = state.lock().unwrap();
+            state.servers[0].log = Arc::new(Mutex::new(RingBuffer::new(40)));
+            let mut log = state.servers[0].log.lock().unwrap();
+            for index in 0..30 {
+                log.push(format!("line-{index:02}"));
+            }
+        }
+        let mut tui = TuiApp::new(2);
+        tui.scroll_up(5);
+
+        let output = render_to_string(&tui, &state);
+
+        assert!(output.contains("line-08"));
+        assert!(output.contains("line-24"));
+        assert!(!output.contains("line-29"));
+    }
+
+    #[test]
+    fn renders_default_footer_controls() {
+        let tui = TuiApp::new(2);
+        let state = sample_state();
+
+        let output = render_to_string(&tui, &state);
+
+        assert!(output.contains("select"));
+        assert!(output.contains("scroll"));
+        assert!(output.contains("r restart"));
+        assert!(output.contains("s stop/start"));
+        assert!(output.contains("e rerun"));
+        assert!(output.contains("q quit"));
     }
 
     #[test]
