@@ -48,6 +48,15 @@ pub struct ServerProcess {
 impl ServerProcess {
     /// Spawn the server as a process group and start capturing its stdout/stderr.
     pub fn spawn(name: &str, command: &str) -> anyhow::Result<Self> {
+        Self::spawn_inner(name, command, true)
+    }
+
+    #[allow(dead_code)] // used by TUI server execution in Task 7
+    pub fn spawn_captured(name: &str, command: &str) -> anyhow::Result<Self> {
+        Self::spawn_inner(name, command, false)
+    }
+
+    fn spawn_inner(name: &str, command: &str, tee_output: bool) -> anyhow::Result<Self> {
         let mut cmd = build_command(command)?;
         let mut child = cmd.group_spawn()?;
         let log = Arc::new(Mutex::new(RingBuffer::new(LOG_CAPACITY)));
@@ -55,10 +64,10 @@ impl ServerProcess {
         // Take the piped streams from the inner tokio Child before handing
         // ownership of `child` to the struct. `.inner()` gives `&mut Child`.
         if let Some(stdout) = child.inner().stdout.take() {
-            spawn_reader(stdout, Arc::clone(&log), false);
+            spawn_reader(stdout, Arc::clone(&log), false, tee_output);
         }
         if let Some(stderr) = child.inner().stderr.take() {
-            spawn_reader(stderr, Arc::clone(&log), true);
+            spawn_reader(stderr, Arc::clone(&log), true, tee_output);
         }
 
         Ok(Self {
@@ -77,7 +86,7 @@ impl ServerProcess {
     }
 }
 
-fn spawn_reader<R>(mut stream: R, log: Arc<Mutex<RingBuffer>>, stderr: bool)
+fn spawn_reader<R>(mut stream: R, log: Arc<Mutex<RingBuffer>>, stderr: bool, tee_output: bool)
 where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
@@ -90,7 +99,9 @@ where
                 break;
             }
 
-            write_output(&buf[..n], stderr);
+            if tee_output {
+                write_output(&buf[..n], stderr);
+            }
 
             capture_lines(&buf[..n], &mut line, &log);
         }
@@ -125,5 +136,21 @@ fn capture_lines(bytes: &[u8], line: &mut String, log: &Arc<Mutex<RingBuffer>>) 
         } else {
             line.push(ch);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn spawn_captured_server_records_output_lines() {
+        let mut server =
+            ServerProcess::spawn_captured("Test", "sh -c 'echo server-out; sleep 5'").unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        server.stop().await.unwrap();
+
+        let lines: Vec<_> = server.log.lock().unwrap().iter().cloned().collect();
+        assert!(lines.contains(&"server-out".to_string()));
     }
 }
