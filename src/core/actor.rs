@@ -56,8 +56,11 @@ pub async fn run_tui_engine(
                     return Err(error);
                 }
                 if !final_status_started && all_servers_running(&state) {
-                    set_final_status(&state, FinalCmdStatus::Running);
                     final_status_started = true;
+                    if let Err(error) = run_final_command_for_tui(&config.command, &state).await {
+                        stop_all(&mut processes).await?;
+                        return Err(error);
+                    }
                 }
             }
         }
@@ -129,6 +132,33 @@ fn all_servers_running(state: &Arc<Mutex<AppState>>) -> bool {
                 .all(|server| server.status == ServerStatus::Running)
         })
         .unwrap_or(false)
+}
+
+#[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
+async fn run_final_command_for_tui(
+    command: &str,
+    state: &Arc<Mutex<AppState>>,
+) -> anyhow::Result<()> {
+    set_final_status(state, FinalCmdStatus::Running);
+    let final_cmd = crate::core::command::spawn_captured(command)?;
+    let log = Arc::clone(&final_cmd.log);
+    if let Ok(mut guard) = state.lock() {
+        guard.final_cmd.log = Arc::clone(&log);
+    }
+
+    let mut child = final_cmd.child;
+    let status = child.wait().await?;
+    for reader in final_cmd.readers {
+        let _ = reader.await;
+    }
+
+    let code = status.code().unwrap_or(1);
+    if status.success() {
+        set_final_status(state, FinalCmdStatus::Succeeded(code));
+    } else {
+        set_final_status(state, FinalCmdStatus::Failed(code));
+    }
+    Ok(())
 }
 
 #[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
@@ -230,5 +260,56 @@ mod tests {
         super::remember_first_error(&mut first, anyhow::anyhow!("second"));
 
         assert_eq!(first.unwrap().to_string(), "first");
+    }
+}
+
+#[cfg(all(test, unix))]
+mod final_command_tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::run_final_command_for_tui;
+    use crate::core::state::{AppState, FinalCmdStatus};
+
+    #[tokio::test]
+    async fn run_final_command_updates_success_status_and_log() {
+        let config = crate::config::Config {
+            servers: Vec::new(),
+            command: "sh -c 'echo final-ok'".to_string(),
+        };
+        let state = Arc::new(Mutex::new(AppState::new(&config.servers, &config.command)));
+
+        run_final_command_for_tui(&config.command, &state)
+            .await
+            .unwrap();
+
+        let guard = state.lock().unwrap();
+        assert_eq!(guard.final_cmd.status, FinalCmdStatus::Succeeded(0));
+        let lines: Vec<_> = guard
+            .final_cmd
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect();
+        assert!(lines.contains(&"final-ok".to_string()));
+    }
+
+    #[tokio::test]
+    async fn run_final_command_updates_failed_status() {
+        let config = crate::config::Config {
+            servers: Vec::new(),
+            command: "sh -c 'exit 7'".to_string(),
+        };
+        let state = Arc::new(Mutex::new(AppState::new(&config.servers, &config.command)));
+
+        run_final_command_for_tui(&config.command, &state)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            state.lock().unwrap().final_cmd.status,
+            FinalCmdStatus::Failed(7)
+        );
     }
 }
