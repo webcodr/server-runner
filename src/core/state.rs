@@ -180,6 +180,18 @@ mod tests {
 mod app_state_tests {
     use super::*;
 
+    fn assert_log_uses_capacity(log: &Arc<Mutex<RingBuffer>>) {
+        let mut log = log.lock().unwrap();
+        for i in 0..=LOG_CAPACITY {
+            log.push(format!("line-{i}"));
+        }
+
+        assert_eq!(log.len(), LOG_CAPACITY);
+        let lines: Vec<_> = log.iter().cloned().collect();
+        assert_eq!(lines.first(), Some(&"line-1".to_string()));
+        assert_eq!(lines.last(), Some(&format!("line-{LOG_CAPACITY}")));
+    }
+
     #[test]
     fn final_cmd_status_equality() {
         assert_eq!(FinalCmdStatus::Succeeded(0), FinalCmdStatus::Succeeded(0));
@@ -210,8 +222,15 @@ mod app_state_tests {
         assert_eq!(app.servers[0].url, "http://127.0.0.1:3000");
         assert_eq!(app.servers[0].status, ServerStatus::Waiting);
         assert_eq!(app.servers[0].attempts, 0u8);
+        assert_log_uses_capacity(&app.servers[0].log);
+        assert_eq!(app.servers[1].name, "Worker");
+        assert_eq!(app.servers[1].url, "http://127.0.0.1:3001");
+        assert_eq!(app.servers[1].status, ServerStatus::Waiting);
+        assert_eq!(app.servers[1].attempts, 0u8);
+        assert_log_uses_capacity(&app.servers[1].log);
         assert_eq!(app.final_cmd.command, "npm test");
         assert_eq!(app.final_cmd.status, FinalCmdStatus::Idle);
+        assert_log_uses_capacity(&app.final_cmd.log);
     }
 
     #[test]
