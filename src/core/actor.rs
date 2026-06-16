@@ -93,7 +93,17 @@ pub async fn run_tui_engine(
                             final_status_started = false;
                         }
                     }
-                    Some(EngineCommand::RerunFinalCommand) => {}
+                    Some(EngineCommand::RerunFinalCommand) => {
+                        let status = final_command_status(&state);
+                        if all_servers_running(&state)
+                            && status != FinalCmdStatus::Running
+                            && let Err(error) =
+                                run_final_command_for_tui(&config.command, &state).await
+                        {
+                            stop_all(&mut processes).await?;
+                            return Err(error);
+                        }
+                    }
                 }
             }
             _ = ticker.tick() => {
@@ -269,6 +279,14 @@ fn set_final_status(state: &Arc<Mutex<AppState>>, status: FinalCmdStatus) {
     if let Ok(mut state) = state.lock() {
         state.final_cmd.status = status;
     }
+}
+
+#[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
+fn final_command_status(state: &Arc<Mutex<AppState>>) -> FinalCmdStatus {
+    state
+        .lock()
+        .map(|state| state.final_cmd.status)
+        .unwrap_or(FinalCmdStatus::Idle)
 }
 
 #[allow(dead_code)] // used through run_tui_engine once the TUI is wired in

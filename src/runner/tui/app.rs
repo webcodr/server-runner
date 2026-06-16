@@ -3,6 +3,7 @@ use crate::runner::tui::input::UiAction;
 #[allow(dead_code)] // used by TUI in Plan 2
 pub struct TuiApp {
     selected: usize,
+    server_count: usize,
     scroll: Vec<usize>,
     follow_tail: Vec<bool>,
     footer_message: Option<String>,
@@ -15,6 +16,7 @@ impl TuiApp {
         let row_count = server_count + 1;
         Self {
             selected: 0,
+            server_count,
             scroll: vec![0; row_count],
             follow_tail: vec![true; row_count],
             footer_message: None,
@@ -24,6 +26,10 @@ impl TuiApp {
 
     pub fn selected(&self) -> usize {
         self.selected
+    }
+
+    pub fn is_final_row(&self) -> bool {
+        self.selected == self.server_count
     }
 
     pub fn should_quit(&self) -> bool {
@@ -163,5 +169,16 @@ mod tests {
         assert_eq!(app.scroll_offset(), 0);
         app.apply_action(crate::runner::tui::input::UiAction::Quit);
         assert!(app.should_quit());
+    }
+
+    #[test]
+    fn final_row_detection_uses_server_count() {
+        let app = TuiApp::new(2);
+        assert!(!app.is_final_row());
+
+        let mut app = TuiApp::new(2);
+        app.select_next();
+        app.select_next();
+        assert!(app.is_final_row());
     }
 }
