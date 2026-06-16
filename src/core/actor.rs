@@ -23,10 +23,10 @@ pub async fn run_tui_engine(
     state: Arc<Mutex<AppState>>,
     mut commands: mpsc::Receiver<EngineCommand>,
 ) -> anyhow::Result<()> {
-    let mut processes = Vec::with_capacity(config.servers.len());
+    let mut processes: Vec<Option<ServerProcess>> = Vec::with_capacity(config.servers.len());
     for server in &config.servers {
         match ServerProcess::spawn_captured(&server.name, &server.command) {
-            Ok(process) => processes.push(process),
+            Ok(process) => processes.push(Some(process)),
             Err(error) => {
                 let _ = stop_all(&mut processes).await;
                 return Err(error);
@@ -45,9 +45,53 @@ pub async fn run_tui_engine(
                         stop_all(&mut processes).await?;
                         return Ok(());
                     }
-                    Some(EngineCommand::Restart(_))
-                    | Some(EngineCommand::StopStart(_))
-                    | Some(EngineCommand::RerunFinalCommand) => {}
+                    Some(EngineCommand::Restart(idx)) => {
+                        if idx < processes.len() {
+                            if let Some(mut process) = processes[idx].take() {
+                                let _ = process.stop().await;
+                            }
+                            match ServerProcess::spawn_captured(
+                                &config.servers[idx].name,
+                                &config.servers[idx].command,
+                            ) {
+                                Ok(process) => processes[idx] = Some(process),
+                                Err(error) => {
+                                    stop_all(&mut processes).await?;
+                                    return Err(error);
+                                }
+                            }
+                            reset_server_for_start(&state, idx, "Restarting server");
+                            final_status_started = false;
+                        }
+                    }
+                    Some(EngineCommand::StopStart(idx)) => {
+                        if idx < processes.len() {
+                            let status = server_status(&state, idx);
+                            if matches!(
+                                status,
+                                Some(ServerStatus::Stopped) | Some(ServerStatus::Failed)
+                            ) {
+                                match ServerProcess::spawn_captured(
+                                    &config.servers[idx].name,
+                                    &config.servers[idx].command,
+                                ) {
+                                    Ok(process) => processes[idx] = Some(process),
+                                    Err(error) => {
+                                        stop_all(&mut processes).await?;
+                                        return Err(error);
+                                    }
+                                }
+                                reset_server_for_start(&state, idx, "Starting server");
+                            } else {
+                                if let Some(mut process) = processes[idx].take() {
+                                    let _ = process.stop().await;
+                                }
+                                mark_server_stopped(&state, idx);
+                            }
+                            final_status_started = false;
+                        }
+                    }
+                    Some(EngineCommand::RerunFinalCommand) => {}
                 }
             }
             _ = ticker.tick() => {
@@ -99,6 +143,31 @@ fn mark_server_running(state: &Arc<Mutex<AppState>>, idx: usize) {
 }
 
 #[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
+fn reset_server_for_start(state: &Arc<Mutex<AppState>>, idx: usize, reason: &str) {
+    if let Ok(mut guard) = state.lock()
+        && let Some(server) = guard.servers.get_mut(idx)
+    {
+        server.status = ServerStatus::Waiting;
+        server.attempts = crate::core::state::Attempts(0);
+        if let Ok(mut log) = server.log.lock() {
+            log.push(format!("--- {reason} ---"));
+        }
+    }
+}
+
+#[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
+fn mark_server_stopped(state: &Arc<Mutex<AppState>>, idx: usize) {
+    if let Ok(mut guard) = state.lock()
+        && let Some(server) = guard.servers.get_mut(idx)
+    {
+        server.status = ServerStatus::Stopped;
+        if let Ok(mut log) = server.log.lock() {
+            log.push("--- Server stopped ---".to_string());
+        }
+    }
+}
+
+#[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
 fn increment_attempt_or_fail(state: &Arc<Mutex<AppState>>, idx: usize, max_attempts: u8) {
     if let Ok(mut state) = state.lock()
         && let Some(server) = state.servers.get_mut(idx)
@@ -141,9 +210,8 @@ async fn run_final_command_for_tui(
 ) -> anyhow::Result<()> {
     set_final_status(state, FinalCmdStatus::Running);
     let final_cmd = crate::core::command::spawn_captured(command)?;
-    let log = Arc::clone(&final_cmd.log);
     if let Ok(mut guard) = state.lock() {
-        guard.final_cmd.log = Arc::clone(&log);
+        guard.final_cmd.log = Arc::clone(&final_cmd.log);
     }
 
     let mut child = final_cmd.child;
@@ -169,10 +237,10 @@ fn set_final_status(state: &Arc<Mutex<AppState>>, status: FinalCmdStatus) {
 }
 
 #[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
-async fn stop_all(processes: &mut [ServerProcess]) -> anyhow::Result<()> {
+async fn stop_all(processes: &mut [Option<ServerProcess>]) -> anyhow::Result<()> {
     let mut first_error = None;
 
-    for process in processes {
+    for process in processes.iter_mut().flatten() {
         if let Err(error) = process.stop().await {
             remember_first_error(&mut first_error, error);
         }
@@ -204,6 +272,7 @@ fn server_status(state: &Arc<Mutex<AppState>>, idx: usize) -> Option<ServerStatu
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use super::{mark_server_stopped, reset_server_for_start};
     use crate::config::{Config, Server};
     use crate::core::state::{AppState, ServerStatus};
 
@@ -260,6 +329,60 @@ mod tests {
         super::remember_first_error(&mut first, anyhow::anyhow!("second"));
 
         assert_eq!(first.unwrap().to_string(), "first");
+    }
+
+    #[test]
+    fn restart_resets_server_state() {
+        let config = crate::config::Config {
+            servers: vec![crate::config::Server {
+                name: "A".to_string(),
+                url: "http://127.0.0.1:1".to_string(),
+                command: "echo a".to_string(),
+                timeout: 1,
+            }],
+            command: "echo done".to_string(),
+        };
+        let state = Arc::new(Mutex::new(AppState::new(&config.servers, &config.command)));
+        {
+            let mut guard = state.lock().unwrap();
+            guard.servers[0].status = ServerStatus::Failed;
+            guard.servers[0].attempts = crate::core::state::Attempts(5);
+        }
+
+        reset_server_for_start(&state, 0, "Restarting server");
+
+        let guard = state.lock().unwrap();
+        assert_eq!(guard.servers[0].status, ServerStatus::Waiting);
+        assert_eq!(guard.servers[0].attempts, 0u8);
+        let lines: Vec<_> = guard.servers[0]
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect();
+        assert!(lines.contains(&"--- Restarting server ---".to_string()));
+    }
+
+    #[test]
+    fn stop_marks_server_stopped() {
+        let config = crate::config::Config {
+            servers: vec![crate::config::Server {
+                name: "A".to_string(),
+                url: "http://127.0.0.1:1".to_string(),
+                command: "echo a".to_string(),
+                timeout: 1,
+            }],
+            command: "echo done".to_string(),
+        };
+        let state = Arc::new(Mutex::new(AppState::new(&config.servers, &config.command)));
+
+        mark_server_stopped(&state, 0);
+
+        assert_eq!(
+            state.lock().unwrap().servers[0].status,
+            ServerStatus::Stopped
+        );
     }
 }
 
