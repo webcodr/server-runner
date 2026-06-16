@@ -30,17 +30,19 @@ pub fn map_event(event: InputEvent) -> UiAction {
 }
 
 fn map_key_event(key: KeyEvent) -> UiAction {
-    match key.code {
-        KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => UiAction::SelectNext,
-        KeyCode::Up | KeyCode::Char('k') => UiAction::SelectPrevious,
-        KeyCode::PageUp => UiAction::ScrollUp(10),
-        KeyCode::PageDown => UiAction::ScrollDown(10),
-        KeyCode::End => UiAction::FollowTail,
-        KeyCode::Char('r') => UiAction::Restart,
-        KeyCode::Char('s') => UiAction::StopStart,
-        KeyCode::Char('e') => UiAction::RerunFinalCommand,
-        KeyCode::Char('q') => UiAction::Quit,
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => UiAction::Quit,
+    match (key.code, key.modifiers) {
+        (KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab, KeyModifiers::NONE) => {
+            UiAction::SelectNext
+        }
+        (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => UiAction::SelectPrevious,
+        (KeyCode::PageUp, KeyModifiers::NONE) => UiAction::ScrollUp(10),
+        (KeyCode::PageDown, KeyModifiers::NONE) => UiAction::ScrollDown(10),
+        (KeyCode::End, KeyModifiers::NONE) => UiAction::FollowTail,
+        (KeyCode::Char('r'), KeyModifiers::NONE) => UiAction::Restart,
+        (KeyCode::Char('s'), KeyModifiers::NONE) => UiAction::StopStart,
+        (KeyCode::Char('e'), KeyModifiers::NONE) => UiAction::RerunFinalCommand,
+        (KeyCode::Char('q'), KeyModifiers::NONE) => UiAction::Quit,
+        (KeyCode::Char('c'), KeyModifiers::CONTROL) => UiAction::Quit,
         _ => UiAction::None,
     }
 }
@@ -66,6 +68,10 @@ mod tests {
 
     fn ctrl_key(code: KeyCode) -> InputEvent {
         InputEvent::Key(KeyEvent::new(code, KeyModifiers::CONTROL))
+    }
+
+    fn modified_key(code: KeyCode, modifiers: KeyModifiers) -> InputEvent {
+        InputEvent::Key(KeyEvent::new(code, modifiers))
     }
 
     fn mouse(kind: MouseEventKind) -> InputEvent {
@@ -114,6 +120,25 @@ mod tests {
             UiAction::RerunFinalCommand
         );
         assert_eq!(map_event(key(KeyCode::Char('q'))), UiAction::Quit);
+        assert_eq!(map_event(ctrl_key(KeyCode::Char('c'))), UiAction::Quit);
+    }
+
+    #[test]
+    fn ignores_modified_shortcut_keys_except_ctrl_c() {
+        assert_eq!(map_event(ctrl_key(KeyCode::Char('r'))), UiAction::None);
+        assert_eq!(
+            map_event(modified_key(KeyCode::Char('e'), KeyModifiers::ALT)),
+            UiAction::None
+        );
+        assert_eq!(map_event(ctrl_key(KeyCode::Char('q'))), UiAction::None);
+        assert_eq!(
+            map_event(modified_key(KeyCode::Down, KeyModifiers::SHIFT)),
+            UiAction::None
+        );
+        assert_eq!(
+            map_event(modified_key(KeyCode::Tab, KeyModifiers::CONTROL)),
+            UiAction::None
+        );
         assert_eq!(map_event(ctrl_key(KeyCode::Char('c'))), UiAction::Quit);
     }
 }
