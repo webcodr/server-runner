@@ -42,8 +42,8 @@ async fn async_main(args: Args) -> anyhow::Result<()> {
     let config = config::get_config(&args.config)?;
 
     if args.tui {
-        anyhow::bail!("TUI mode is not yet implemented");
+        runner::tui::run(config, args.attempts).await
+    } else {
+        runner::plain::run(config, args.attempts).await
     }
-
-    runner::plain::run(config, args.attempts).await
 }
