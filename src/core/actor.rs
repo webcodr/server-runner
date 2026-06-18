@@ -29,6 +29,7 @@ pub async fn run_tui_engine(
     state: Arc<Mutex<AppState>>,
     mut commands: mpsc::Receiver<EngineCommand>,
 ) -> anyhow::Result<()> {
+    let config = Arc::new(config);
     let mut processes: Vec<Option<ServerProcess>> = Vec::with_capacity(config.servers.len());
     for (idx, server) in config.servers.iter().enumerate() {
         match ServerProcess::spawn_captured(&server.name, &server.command) {
@@ -37,14 +38,19 @@ pub async fn run_tui_engine(
                 processes.push(Some(process));
             }
             Err(error) => {
-                let _ = stop_all(&mut processes).await;
-                return Err(error);
+                mark_server_failed_with_message(
+                    &state,
+                    idx,
+                    format!("Failed to start server {}: {error}", server.name),
+                );
+                processes.push(None);
             }
         }
     }
 
     let mut final_status_started = false;
     let mut final_command_task: Option<FinalCommandTask> = None;
+    let mut poll_task: Option<JoinHandle<anyhow::Result<()>>> = None;
     let mut ticker = tokio::time::interval(Duration::from_secs(1));
 
     loop {
@@ -52,48 +58,43 @@ pub async fn run_tui_engine(
             command = commands.recv() => {
                 match command {
                     Some(EngineCommand::Quit) | None => {
+                        abort_poll_task(&mut poll_task).await;
                         abort_final_command(&mut final_command_task, &state).await;
                         stop_all(&mut processes).await?;
                         return Ok(());
                     }
                     Some(EngineCommand::Restart(idx)) => {
                         if idx < processes.len() {
+                            abort_poll_task(&mut poll_task).await;
                             abort_final_command(&mut final_command_task, &state).await;
-                            if let Err(error) = start_server_process(
+                            start_server_process(
                                 &mut processes,
                                 &state,
                                 &config.servers[idx],
                                 idx,
                                 "Restarting server",
                             )
-                            .await
-                            {
-                                stop_all(&mut processes).await?;
-                                return Err(error);
-                            }
+                            .await;
                             final_status_started = false;
                         }
                     }
                     Some(EngineCommand::StopStart(idx)) => {
                         if idx < processes.len() {
+                            abort_poll_task(&mut poll_task).await;
                             abort_final_command(&mut final_command_task, &state).await;
                             let status = server_status(&state, idx);
                             if matches!(
                                 status,
                                 Some(ServerStatus::Stopped) | Some(ServerStatus::Failed)
                             ) {
-                                if let Err(error) = start_server_process(
+                                start_server_process(
                                     &mut processes,
                                     &state,
                                     &config.servers[idx],
                                     idx,
                                     "Starting server",
                                 )
-                                .await
-                                {
-                                    stop_all(&mut processes).await?;
-                                    return Err(error);
-                                }
+                                .await;
                             } else {
                                 if let Some(mut process) = processes[idx].take() {
                                     let _ = process.stop().await;
@@ -117,6 +118,20 @@ pub async fn run_tui_engine(
                 }
             }
             result = async {
+                (&mut poll_task
+                    .as_mut()
+                    .expect("poll task should exist"))
+                    .await
+            }, if poll_task.is_some() => {
+                poll_task = None;
+                let result = result.map_err(anyhow::Error::from)?;
+                if let Err(error) = result {
+                    abort_final_command(&mut final_command_task, &state).await;
+                    stop_all(&mut processes).await?;
+                    return Err(error);
+                }
+            }
+            result = async {
                 (&mut final_command_task
                     .as_mut()
                     .expect("final command task should exist")
@@ -131,10 +146,12 @@ pub async fn run_tui_engine(
                 }
             }
             _ = ticker.tick() => {
-                if let Err(error) = poll_servers(&config, max_attempts, &state).await {
-                    abort_final_command(&mut final_command_task, &state).await;
-                    stop_all(&mut processes).await?;
-                    return Err(error);
+                if poll_task.is_none() {
+                    let poll_config = Arc::clone(&config);
+                    let poll_state = Arc::clone(&state);
+                    poll_task = Some(tokio::spawn(async move {
+                        poll_servers(&poll_config, max_attempts, &poll_state).await
+                    }));
                 }
                 if !final_status_started
                     && all_servers_running(&state)
@@ -204,15 +221,24 @@ async fn start_server_process(
     server: &crate::config::Server,
     idx: usize,
     reason: &str,
-) -> anyhow::Result<()> {
+) {
     if let Some(mut process) = processes[idx].take() {
         let _ = process.stop().await;
     }
-    let process = ServerProcess::spawn_captured(&server.name, &server.command)?;
-    link_server_log(state, idx, Arc::clone(&process.log));
-    processes[idx] = Some(process);
-    reset_server_for_start(state, idx, reason);
-    Ok(())
+    match ServerProcess::spawn_captured(&server.name, &server.command) {
+        Ok(process) => {
+            link_server_log(state, idx, Arc::clone(&process.log));
+            processes[idx] = Some(process);
+            reset_server_for_start(state, idx, reason);
+        }
+        Err(error) => {
+            mark_server_failed_with_message(
+                state,
+                idx,
+                format!("Failed to start server {}: {error}", server.name),
+            );
+        }
+    }
 }
 
 #[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
@@ -236,6 +262,22 @@ fn mark_server_stopped(state: &Arc<Mutex<AppState>>, idx: usize) {
         server.status = ServerStatus::Stopped;
         if let Ok(mut log) = server.log.lock() {
             log.push("--- Server stopped ---".to_string());
+        }
+    }
+}
+
+#[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
+fn mark_server_failed_with_message(
+    state: &Arc<Mutex<AppState>>,
+    idx: usize,
+    message: impl Into<String>,
+) {
+    if let Ok(mut guard) = state.lock()
+        && let Some(server) = guard.servers.get_mut(idx)
+    {
+        server.status = ServerStatus::Failed;
+        if let Ok(mut log) = server.log.lock() {
+            log.push(message.into());
         }
     }
 }
@@ -318,6 +360,13 @@ async fn abort_final_command(
     }
 }
 
+async fn abort_poll_task(poll_task: &mut Option<JoinHandle<anyhow::Result<()>>>) {
+    if let Some(task) = poll_task.take() {
+        task.abort();
+        let _ = task.await;
+    }
+}
+
 #[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
 async fn run_final_command_for_tui(
     command: &str,
@@ -333,7 +382,16 @@ async fn run_final_command_for_tui_inner(
     state: &Arc<Mutex<AppState>>,
     cancel_rx: oneshot::Receiver<()>,
 ) -> anyhow::Result<()> {
-    let mut final_cmd = crate::core::command::spawn_captured_group(command)?;
+    let mut final_cmd = match crate::core::command::spawn_captured_group(command) {
+        Ok(final_cmd) => final_cmd,
+        Err(error) => {
+            mark_final_failed_with_message(
+                state,
+                format!("Failed to start final command: {error}"),
+            );
+            return Ok(());
+        }
+    };
     if let Ok(mut guard) = state.lock() {
         guard.final_cmd.log = Arc::clone(&final_cmd.log);
     }
@@ -360,6 +418,15 @@ async fn run_final_command_for_tui_inner(
         set_final_status(state, FinalCmdStatus::Failed(code));
     }
     Ok(())
+}
+
+fn mark_final_failed_with_message(state: &Arc<Mutex<AppState>>, message: impl Into<String>) {
+    if let Ok(mut guard) = state.lock() {
+        guard.final_cmd.status = FinalCmdStatus::Failed(1);
+        if let Ok(mut log) = guard.final_cmd.log.lock() {
+            log.push(message.into());
+        }
+    }
 }
 
 #[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
@@ -567,7 +634,7 @@ mod final_command_tests {
     use tokio::sync::mpsc;
 
     use super::{EngineCommand, run_final_command_for_tui, run_tui_engine};
-    use crate::core::state::{AppState, FinalCmdStatus};
+    use crate::core::state::{AppState, FinalCmdStatus, ServerStatus};
 
     fn pid_alive(pid: u32) -> bool {
         std::process::Command::new("kill")
@@ -710,6 +777,95 @@ mod final_command_tests {
             panic!("final command descendant was not killed on quit");
         }
     }
+
+    #[tokio::test]
+    async fn quit_returns_promptly_while_readiness_poll_is_blocked() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _acceptor = std::thread::spawn(move || {
+            if let Ok((_stream, _addr)) = listener.accept() {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+            }
+        });
+        let config = crate::config::Config {
+            servers: vec![crate::config::Server {
+                name: "Slow".to_string(),
+                url: format!("http://{addr}"),
+                command: "sh -c 'sleep 5'".to_string(),
+                timeout: 5,
+            }],
+            command: "echo done".to_string(),
+        };
+        let state = Arc::new(Mutex::new(AppState::new(&config.servers, &config.command)));
+        let (tx, rx) = mpsc::channel(1);
+        let actor = tokio::spawn(run_tui_engine(config, 1, Arc::clone(&state), rx));
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tx.send(EngineCommand::Quit).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_millis(500), actor)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn initial_server_spawn_failure_marks_failed_and_actor_stays_alive() {
+        let config = crate::config::Config {
+            servers: vec![crate::config::Server {
+                name: "Bad".to_string(),
+                url: "http://127.0.0.1:1".to_string(),
+                command: "definitely-not-a-server-runner-command".to_string(),
+                timeout: 1,
+            }],
+            command: "echo done".to_string(),
+        };
+        let state = Arc::new(Mutex::new(AppState::new(&config.servers, &config.command)));
+        let (tx, rx) = mpsc::channel(1);
+        let actor = tokio::spawn(run_tui_engine(config, 1, Arc::clone(&state), rx));
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            state.lock().unwrap().servers[0].status,
+            ServerStatus::Failed
+        );
+        assert!(
+            !actor.is_finished(),
+            "actor should stay alive after spawn failure"
+        );
+
+        tx.send(EngineCommand::Quit).await.unwrap();
+        actor.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn final_command_spawn_failure_marks_failed_and_actor_stays_alive() {
+        let config = crate::config::Config {
+            servers: Vec::new(),
+            command: "definitely-not-a-server-runner-command".to_string(),
+        };
+        let state = Arc::new(Mutex::new(AppState::new(&config.servers, &config.command)));
+        let (tx, rx) = mpsc::channel(1);
+        let actor = tokio::spawn(run_tui_engine(config, 1, Arc::clone(&state), rx));
+
+        for _ in 0..20 {
+            if state.lock().unwrap().final_cmd.status == FinalCmdStatus::Failed(1) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert_eq!(
+            state.lock().unwrap().final_cmd.status,
+            FinalCmdStatus::Failed(1)
+        );
+        assert!(
+            !actor.is_finished(),
+            "actor should stay alive after final spawn failure"
+        );
+
+        tx.send(EngineCommand::Quit).await.unwrap();
+        actor.await.unwrap().unwrap();
+    }
 }
 
 #[cfg(all(test, unix))]
@@ -761,8 +917,7 @@ mod command_path_tests {
             0,
             "Starting server",
         )
-        .await
-        .unwrap();
+        .await;
 
         // Give the OS a moment to reap the killed group.
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
