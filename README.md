@@ -29,6 +29,7 @@ server-runner [OPTIONS]
 - `-c, --config <FILE>` - Path to configuration file (default: `servers.yaml`)
 - `-v, --verbose` - Enable verbose logging
 - `-a, --attempts <NUMBER>` - Maximum number of connection attempts per server (default: 10)
+- `--tui`: run the interactive control panel with live status, logs, and server controls.
 - `-h, --help` - Print help information
 - `-V, --version` - Print version information
 
