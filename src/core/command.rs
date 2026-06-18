@@ -1,3 +1,4 @@
+use command_group::{AsyncCommandGroup, AsyncGroupChild};
 use tokio::io::AsyncReadExt;
 use tokio::process::Child;
 use tokio::task::JoinHandle;
@@ -16,6 +17,23 @@ pub struct FinalCommand {
     pub readers: Vec<JoinHandle<()>>,
 }
 
+/// A captured final command spawned as a process group for TUI cancellation.
+pub struct FinalCommandGroup {
+    child: AsyncGroupChild,
+    pub log: Arc<Mutex<RingBuffer>>,
+    pub readers: Vec<JoinHandle<()>>,
+}
+
+impl FinalCommandGroup {
+    pub async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        self.child.wait().await
+    }
+
+    pub async fn cancel(&mut self) -> std::io::Result<()> {
+        self.child.kill().await
+    }
+}
+
 /// Spawn the final command (NOT as a process group — matches today's `Command::spawn`).
 pub fn spawn(command: &str) -> anyhow::Result<FinalCommand> {
     spawn_inner(command, true)
@@ -24,6 +42,27 @@ pub fn spawn(command: &str) -> anyhow::Result<FinalCommand> {
 #[allow(dead_code)] // used by TUI command execution in Task 7
 pub fn spawn_captured(command: &str) -> anyhow::Result<FinalCommand> {
     spawn_inner(command, false)
+}
+
+#[allow(dead_code)] // used by TUI command execution
+pub fn spawn_captured_group(command: &str) -> anyhow::Result<FinalCommandGroup> {
+    let mut cmd = build_command(command)?;
+    let mut child = cmd.group_spawn()?;
+    let log = Arc::new(Mutex::new(RingBuffer::new(LOG_CAPACITY)));
+    let mut readers = Vec::new();
+
+    if let Some(stdout) = child.inner().stdout.take() {
+        readers.push(spawn_reader(stdout, Arc::clone(&log), false, false));
+    }
+    if let Some(stderr) = child.inner().stderr.take() {
+        readers.push(spawn_reader(stderr, Arc::clone(&log), true, false));
+    }
+
+    Ok(FinalCommandGroup {
+        child,
+        log,
+        readers,
+    })
 }
 
 fn spawn_inner(command: &str, tee_output: bool) -> anyhow::Result<FinalCommand> {
