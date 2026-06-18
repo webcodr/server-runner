@@ -88,21 +88,40 @@ pub async fn run(config: Config, max_attempts: u8) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel(32);
     let actor_state = Arc::clone(&state);
     let actor = tokio::spawn(run_tui_engine(config, max_attempts, actor_state, rx));
+    tokio::pin!(actor);
 
-    let ui_result = run_terminal_loop(&mut app, Arc::clone(&state), tx.clone()).await;
-    let _ = tx.send(EngineCommand::Quit).await;
-    let actor_result = actor.await.context("TUI engine task failed")?;
+    let ui_loop = run_terminal_loop(&mut app, Arc::clone(&state), tx.clone());
+    tokio::pin!(ui_loop);
 
-    ui_result?;
-    actor_result?;
-    Ok(())
+    tokio::select! {
+        ui_result = &mut ui_loop => {
+            match ui_result {
+                Ok(true) => {}
+                Ok(false) => {
+                    let _ = tx.send(EngineCommand::Quit).await;
+                }
+                Err(error) => {
+                    let _ = tx.send(EngineCommand::Quit).await;
+                    let actor_result = (&mut actor).await.context("TUI engine task failed")?;
+                    actor_result?;
+                    return Err(error);
+                }
+            }
+            let actor_result = (&mut actor).await.context("TUI engine task failed")?;
+            actor_result?;
+            Ok(())
+        }
+        actor_result = &mut actor => {
+            actor_result.context("TUI engine task failed")?
+        }
+    }
 }
 
 async fn run_terminal_loop(
     app: &mut TuiApp,
     state: Arc<Mutex<AppState>>,
     tx: mpsc::Sender<EngineCommand>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     let _guard = TerminalGuard::enter(TerminalMode::new(true))?;
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
@@ -123,7 +142,7 @@ async fn run_terminal_loop(
         }
     }
 
-    Ok(())
+    Ok(app.should_quit())
 }
 
 async fn handle_action(
