@@ -148,7 +148,9 @@ async fn handle_action(
             }
         }
         UiAction::RerunFinalCommand => {
-            if all_servers_running(state) {
+            if !app.is_final_row() {
+                app.set_footer_message("Re-run applies to the final command only");
+            } else if all_servers_running(state) {
                 tx.send(EngineCommand::RerunFinalCommand).await?;
             } else {
                 app.set_footer_message("All servers must be running before re-run");
@@ -179,10 +181,35 @@ fn all_servers_running(state: &Arc<Mutex<AppState>>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::sync::mpsc::error::TryRecvError;
 
     #[test]
     fn terminal_guard_mode_tracks_mouse_capture_setting() {
         let mode = TerminalMode::new(true);
         assert!(mode.mouse_capture);
+    }
+
+    #[tokio::test]
+    async fn rerun_final_command_on_server_row_sets_footer_without_command() {
+        let servers = vec![crate::config::Server {
+            name: "API".to_string(),
+            url: "http://127.0.0.1:3000".to_string(),
+            command: "python3 -m http.server 3000".to_string(),
+            timeout: 5,
+        }];
+        let state = Arc::new(Mutex::new(AppState::new(&servers, "npm test")));
+        state.lock().unwrap().servers[0].status = ServerStatus::Running;
+        let mut app = TuiApp::new(1);
+        let (tx, mut rx) = mpsc::channel(1);
+
+        handle_action(UiAction::RerunFinalCommand, &mut app, &state, &tx)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            app.footer_message(),
+            Some("Re-run applies to the final command only")
+        );
+        assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
     }
 }
