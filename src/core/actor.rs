@@ -1,4 +1,4 @@
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use std::sync::{Arc, Mutex};
@@ -15,6 +15,11 @@ pub enum EngineCommand {
     StopStart(usize),
     RerunFinalCommand,
     Quit,
+}
+
+struct FinalCommandTask {
+    handle: JoinHandle<anyhow::Result<()>>,
+    cancel: oneshot::Sender<()>,
 }
 
 #[allow(dead_code)] // wired into the TUI in a later task
@@ -39,7 +44,7 @@ pub async fn run_tui_engine(
     }
 
     let mut final_status_started = false;
-    let mut final_command_task: Option<JoinHandle<anyhow::Result<()>>> = None;
+    let mut final_command_task: Option<FinalCommandTask> = None;
     let mut ticker = tokio::time::interval(Duration::from_secs(1));
 
     loop {
@@ -47,13 +52,13 @@ pub async fn run_tui_engine(
             command = commands.recv() => {
                 match command {
                     Some(EngineCommand::Quit) | None => {
-                        abort_final_command(&mut final_command_task, &state);
+                        abort_final_command(&mut final_command_task, &state).await;
                         stop_all(&mut processes).await?;
                         return Ok(());
                     }
                     Some(EngineCommand::Restart(idx)) => {
                         if idx < processes.len() {
-                            abort_final_command(&mut final_command_task, &state);
+                            abort_final_command(&mut final_command_task, &state).await;
                             if let Err(error) = start_server_process(
                                 &mut processes,
                                 &state,
@@ -71,7 +76,7 @@ pub async fn run_tui_engine(
                     }
                     Some(EngineCommand::StopStart(idx)) => {
                         if idx < processes.len() {
-                            abort_final_command(&mut final_command_task, &state);
+                            abort_final_command(&mut final_command_task, &state).await;
                             let status = server_status(&state, idx);
                             if matches!(
                                 status,
@@ -100,21 +105,22 @@ pub async fn run_tui_engine(
                     }
                     Some(EngineCommand::RerunFinalCommand) => {
                         if all_servers_running(&state)
-                            && final_command_is_idle(&state)
-                        {
-                            final_status_started = true;
-                            final_command_task = Some(spawn_final_command_task(
+                            && start_final_command_task_if_idle(
+                                &mut final_command_task,
                                 config.command.clone(),
                                 Arc::clone(&state),
-                            ));
+                            )
+                        {
+                            final_status_started = true;
                         }
                     }
                 }
             }
             result = async {
-                final_command_task
+                (&mut final_command_task
                     .as_mut()
                     .expect("final command task should exist")
+                    .handle)
                     .await
             }, if final_command_task.is_some() => {
                 final_command_task = None;
@@ -126,19 +132,19 @@ pub async fn run_tui_engine(
             }
             _ = ticker.tick() => {
                 if let Err(error) = poll_servers(&config, max_attempts, &state).await {
-                    abort_final_command(&mut final_command_task, &state);
+                    abort_final_command(&mut final_command_task, &state).await;
                     stop_all(&mut processes).await?;
                     return Err(error);
                 }
                 if !final_status_started
                     && all_servers_running(&state)
-                    && final_command_is_idle(&state)
-                {
-                    final_status_started = true;
-                    final_command_task = Some(spawn_final_command_task(
+                    && start_final_command_task_if_idle(
+                        &mut final_command_task,
                         config.command.clone(),
                         Arc::clone(&state),
-                    ));
+                    )
+                {
+                    final_status_started = true;
                 }
             }
         }
@@ -279,23 +285,36 @@ fn final_command_is_idle(state: &Arc<Mutex<AppState>>) -> bool {
 }
 
 #[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
-fn spawn_final_command_task(
+fn start_final_command_task_if_idle(
+    final_command_task: &mut Option<FinalCommandTask>,
     command: String,
     state: Arc<Mutex<AppState>>,
-) -> JoinHandle<anyhow::Result<()>> {
-    tokio::spawn(async move { run_final_command_for_tui(&command, &state).await })
+) -> bool {
+    if final_command_task.is_some() || !final_command_is_idle(&state) {
+        return false;
+    }
+
+    set_final_status(&state, FinalCmdStatus::Running);
+    let (cancel, cancel_rx) = oneshot::channel();
+    let handle =
+        tokio::spawn(
+            async move { run_final_command_for_tui_inner(&command, &state, cancel_rx).await },
+        );
+    *final_command_task = Some(FinalCommandTask { handle, cancel });
+    true
 }
 
 #[allow(dead_code)] // used through run_tui_engine once the TUI is wired in
-fn abort_final_command(
-    final_command_task: &mut Option<JoinHandle<anyhow::Result<()>>>,
+async fn abort_final_command(
+    final_command_task: &mut Option<FinalCommandTask>,
     state: &Arc<Mutex<AppState>>,
 ) {
     if let Some(task) = final_command_task.take() {
-        task.abort();
-        if !final_command_is_idle(state) {
-            set_final_status(state, FinalCmdStatus::Failed(1));
-        }
+        let _ = task.cancel.send(());
+        let _ = task.handle.await;
+    }
+    if !final_command_is_idle(state) {
+        set_final_status(state, FinalCmdStatus::Failed(1));
     }
 }
 
@@ -305,13 +324,31 @@ async fn run_final_command_for_tui(
     state: &Arc<Mutex<AppState>>,
 ) -> anyhow::Result<()> {
     set_final_status(state, FinalCmdStatus::Running);
-    let final_cmd = crate::core::command::spawn_captured(command)?;
+    let (_cancel, cancel_rx) = oneshot::channel();
+    run_final_command_for_tui_inner(command, state, cancel_rx).await
+}
+
+async fn run_final_command_for_tui_inner(
+    command: &str,
+    state: &Arc<Mutex<AppState>>,
+    cancel_rx: oneshot::Receiver<()>,
+) -> anyhow::Result<()> {
+    let mut final_cmd = crate::core::command::spawn_captured_group(command)?;
     if let Ok(mut guard) = state.lock() {
         guard.final_cmd.log = Arc::clone(&final_cmd.log);
     }
 
-    let mut child = final_cmd.child;
-    let status = child.wait().await?;
+    let status = tokio::select! {
+        status = final_cmd.wait() => status?,
+        _ = cancel_rx => {
+            let _ = final_cmd.cancel().await;
+            set_final_status(state, FinalCmdStatus::Failed(1));
+            for reader in final_cmd.readers {
+                let _ = reader.await;
+            }
+            return Ok(());
+        }
+    };
     for reader in final_cmd.readers {
         let _ = reader.await;
     }
@@ -494,6 +531,33 @@ mod tests {
         set_final_status(&state, FinalCmdStatus::Succeeded(0));
         assert!(super::final_command_is_idle(&state));
     }
+
+    #[tokio::test]
+    async fn final_task_start_marks_running_and_refuses_duplicate() {
+        let config = crate::config::Config {
+            servers: Vec::new(),
+            command: "echo done".to_string(),
+        };
+        let state = Arc::new(Mutex::new(AppState::new(&config.servers, &config.command)));
+        let mut final_command_task = None;
+
+        assert!(super::start_final_command_task_if_idle(
+            &mut final_command_task,
+            config.command.clone(),
+            Arc::clone(&state),
+        ));
+        assert_eq!(
+            state.lock().unwrap().final_cmd.status,
+            FinalCmdStatus::Running
+        );
+        assert!(!super::start_final_command_task_if_idle(
+            &mut final_command_task,
+            config.command,
+            Arc::clone(&state),
+        ));
+
+        super::abort_final_command(&mut final_command_task, &state).await;
+    }
 }
 
 #[cfg(all(test, unix))]
@@ -504,6 +568,29 @@ mod final_command_tests {
 
     use super::{EngineCommand, run_final_command_for_tui, run_tui_engine};
     use crate::core::state::{AppState, FinalCmdStatus};
+
+    fn pid_alive(pid: u32) -> bool {
+        std::process::Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    fn final_log_lines(state: &Arc<Mutex<AppState>>) -> Vec<String> {
+        state
+            .lock()
+            .unwrap()
+            .final_cmd
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect()
+    }
 
     #[tokio::test]
     async fn run_final_command_updates_success_status_and_log() {
@@ -576,6 +663,52 @@ mod final_command_tests {
             panic!("actor did not quit promptly while final command was running");
         }
         result.unwrap().unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn quit_kills_running_final_command_descendant() {
+        let config = crate::config::Config {
+            servers: Vec::new(),
+            command: "sh -c 'sleep 5 & echo child:$!; wait'".to_string(),
+        };
+        let state = Arc::new(Mutex::new(AppState::new(&config.servers, &config.command)));
+        let (tx, rx) = mpsc::channel(1);
+        let actor = tokio::spawn(run_tui_engine(config, 1, Arc::clone(&state), rx));
+
+        let mut child_pid = None;
+        for _ in 0..40 {
+            child_pid = final_log_lines(&state).iter().find_map(|line| {
+                line.strip_prefix("child:")
+                    .and_then(|pid| pid.parse::<u32>().ok())
+            });
+            if child_pid.is_some()
+                && state.lock().unwrap().final_cmd.status == FinalCmdStatus::Running
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        let child_pid = child_pid.expect("final command should log descendant pid");
+        assert!(
+            pid_alive(child_pid),
+            "descendant should be alive before quit"
+        );
+
+        tx.send(EngineCommand::Quit).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_millis(500), actor)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        if pid_alive(child_pid) {
+            let _ = std::process::Command::new("kill")
+                .arg("-9")
+                .arg(child_pid.to_string())
+                .status();
+            panic!("final command descendant was not killed on quit");
+        }
     }
 }
 
