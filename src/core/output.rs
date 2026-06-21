@@ -118,7 +118,11 @@ impl AnsiTeeFilter {
                         self.pending.extend_from_slice(b"\x1b[");
                         self.state = TeeState::Csi;
                     }
-                    b']' => self.state = TeeState::Osc,
+                    // OSC (]), DCS (P), SOS (X), PM (^) and APC (_) all introduce
+                    // a string payload terminated by ST (ESC \) or BEL. Route them
+                    // all through the string-consuming Osc state so the payload
+                    // text cannot leak to the terminal as visible characters.
+                    b']' | b'P' | b'X' | b'^' | b'_' => self.state = TeeState::Osc,
                     _ => self.state = TeeState::Ground,
                 },
                 TeeState::Csi => {
@@ -155,6 +159,13 @@ impl AnsiTeeFilter {
 }
 
 fn is_safe_ground_byte(b: u8) -> bool {
+    // Bytes 0x80–0x9f are the 8-bit C1 control range (0x9b is CSI, 0x9d is OSC),
+    // but they are ALSO valid UTF-8 continuation bytes — e.g. 0x82 in "€"
+    // (E2 82 AC). This filter is byte-wise and not UTF-8-aware in Ground state,
+    // so it cannot drop the C1 range without corrupting multibyte characters.
+    // C1 introducers are therefore passed through; modern UTF-8 terminals treat
+    // them as invalid sequence bytes rather than CSI/OSC, so the residual risk
+    // is limited to legacy 8-bit / Latin-1 terminal modes.
     matches!(b, b'\n' | b'\r' | b'\t') || (0x20..=0x7e).contains(&b) || b >= 0x80
 }
 
@@ -242,5 +253,27 @@ mod tests {
     fn tee_drops_del_keeps_utf8() {
         let mut tee = AnsiTeeFilter::new();
         assert_eq!(tee.filter("a\x7f€".as_bytes()), "a€".as_bytes());
+    }
+
+    #[test]
+    fn tee_strips_dcs_and_apc_payloads() {
+        // DCS (ESC P) payload terminated by ST (ESC \)
+        let mut tee = AnsiTeeFilter::new();
+        assert_eq!(tee.filter(b"a\x1bPdata\x1b\\b"), b"ab");
+        // APC (ESC _) payload terminated by BEL
+        let mut tee = AnsiTeeFilter::new();
+        assert_eq!(tee.filter(b"a\x1b_cmd\x07b"), b"ab");
+    }
+
+    #[test]
+    fn tee_drops_overlong_csi_sequence() {
+        let mut tee = AnsiTeeFilter::new();
+        let mut input = vec![0x1b, b'['];
+        input.extend(std::iter::repeat(b'9').take(MAX_CSI_LEN + 10));
+        input.push(b'm');
+        let out = tee.filter(&input);
+        // An overlong CSI is treated as malformed and dropped: the ESC
+        // introducer must never leak to the terminal.
+        assert!(!out.contains(&0x1b));
     }
 }
