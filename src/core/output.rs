@@ -8,6 +8,10 @@ use std::sync::{Arc, Mutex};
 /// Bounds memory when a child emits a very long run of bytes with no newline.
 const MAX_LINE_BYTES: usize = 64 * 1024;
 
+/// Max bytes accumulated for a single CSI escape sequence before it is treated
+/// as malformed and dropped. Bounds memory in the terminal filter.
+const MAX_CSI_LEN: usize = 64;
+
 /// Accumulates raw bytes and emits sanitized, UTF-8-correct lines.
 ///
 /// - Splits on `\n`, trims a trailing `\r` (CRLF).
@@ -62,6 +66,98 @@ fn sanitize_line(line: &str) -> String {
         .collect()
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TeeState {
+    Ground,
+    Esc,
+    Csi,
+    Osc,
+    OscEsc,
+}
+
+/// Streaming filter for bytes teed to the real terminal (LOW-2).
+///
+/// Keeps printable text, `\n`, `\r`, `\t`, UTF-8 bytes, and SGR colour/style
+/// sequences (`ESC[ ... m`). Strips every other escape sequence — OSC (window
+/// title, clipboard), cursor movement, screen/line clears — and stray C0
+/// control bytes. State persists across chunks, so sequences split across
+/// read() boundaries are still handled.
+pub struct AnsiTeeFilter {
+    state: TeeState,
+    pending: Vec<u8>,
+}
+
+impl Default for AnsiTeeFilter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AnsiTeeFilter {
+    pub fn new() -> Self {
+        Self {
+            state: TeeState::Ground,
+            pending: Vec::new(),
+        }
+    }
+
+    pub fn filter(&mut self, input: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(input.len());
+        for &b in input {
+            match self.state {
+                TeeState::Ground => {
+                    if b == 0x1b {
+                        self.state = TeeState::Esc;
+                    } else if is_safe_ground_byte(b) {
+                        out.push(b);
+                    }
+                }
+                TeeState::Esc => match b {
+                    b'[' => {
+                        self.pending.clear();
+                        self.pending.extend_from_slice(b"\x1b[");
+                        self.state = TeeState::Csi;
+                    }
+                    b']' => self.state = TeeState::Osc,
+                    _ => self.state = TeeState::Ground,
+                },
+                TeeState::Csi => {
+                    if b == 0x1b {
+                        // Resync on a fresh escape inside a malformed sequence.
+                        self.pending.clear();
+                        self.state = TeeState::Esc;
+                        continue;
+                    }
+                    self.pending.push(b);
+                    if (0x40..=0x7e).contains(&b) {
+                        if b == b'm' {
+                            out.extend_from_slice(&self.pending);
+                        }
+                        self.pending.clear();
+                        self.state = TeeState::Ground;
+                    } else if self.pending.len() > MAX_CSI_LEN {
+                        self.pending.clear();
+                        self.state = TeeState::Ground;
+                    }
+                }
+                TeeState::Osc => {
+                    if b == 0x07 {
+                        self.state = TeeState::Ground;
+                    } else if b == 0x1b {
+                        self.state = TeeState::OscEsc;
+                    }
+                }
+                TeeState::OscEsc => self.state = TeeState::Ground,
+            }
+        }
+        out
+    }
+}
+
+fn is_safe_ground_byte(b: u8) -> bool {
+    matches!(b, b'\n' | b'\r' | b'\t') || (0x20..=0x7e).contains(&b) || b >= 0x80
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,5 +203,44 @@ mod tests {
         let mut acc = LineAccumulator::new(1024);
         let lines = collect(&mut acc, &[b"a\x1b[31mb\tc\n"]);
         assert_eq!(lines, vec!["a[31mb\tc".to_string()]);
+    }
+
+    #[test]
+    fn tee_keeps_sgr_colour() {
+        let mut tee = AnsiTeeFilter::new();
+        assert_eq!(tee.filter(b"\x1b[31mred\x1b[0m"), b"\x1b[31mred\x1b[0m");
+    }
+
+    #[test]
+    fn tee_strips_osc_title_sequence() {
+        let mut tee = AnsiTeeFilter::new();
+        // OSC 0 ; pwned BEL  -> window-title / clipboard vector
+        assert_eq!(tee.filter(b"a\x1b]0;pwned\x07b"), b"ab");
+    }
+
+    #[test]
+    fn tee_strips_cursor_and_clear_sequences() {
+        let mut tee = AnsiTeeFilter::new();
+        assert_eq!(tee.filter(b"a\x1b[2J\x1b[Hb"), b"ab");
+    }
+
+    #[test]
+    fn tee_strips_stray_control_keeps_newline_tab() {
+        let mut tee = AnsiTeeFilter::new();
+        assert_eq!(tee.filter(b"a\x07b\tc\n"), b"ab\tc\n");
+    }
+
+    #[test]
+    fn tee_handles_sequence_split_across_chunks() {
+        let mut tee = AnsiTeeFilter::new();
+        let mut out = tee.filter(b"\x1b[3");
+        out.extend(tee.filter(b"1mhi"));
+        assert_eq!(out, b"\x1b[31mhi");
+    }
+
+    #[test]
+    fn tee_drops_del_keeps_utf8() {
+        let mut tee = AnsiTeeFilter::new();
+        assert_eq!(tee.filter("a\x7f€".as_bytes()), "a€".as_bytes());
     }
 }
