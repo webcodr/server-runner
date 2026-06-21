@@ -1,6 +1,7 @@
 pub mod actor;
 pub mod command;
 pub mod health;
+pub mod output;
 pub mod server;
 pub mod state;
 
