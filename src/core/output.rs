@@ -1,4 +1,4 @@
-#![allow(dead_code)] // removed in Task 6 once server.rs and command.rs use these
+#![allow(dead_code, unused_imports)] // removed in Task 6 once server.rs and command.rs use these
 
 use crate::core::state::RingBuffer;
 
@@ -96,10 +96,10 @@ mod tests {
     #[test]
     fn caps_oversized_line_without_newline() {
         let mut acc = LineAccumulator::new(8);
-        let mut lines = Vec::new();
-        acc.push(&[b'a'; 20], |l| lines.push(l));
-        assert!(lines.len() >= 2);
+        let lines = collect(&mut acc, &[&[b'a'; 20]]);
+        assert_eq!(lines.len(), 3);
         assert!(lines.iter().all(|l| l.len() <= 8));
+        assert_eq!(lines[2].len(), 4);
     }
 
     #[test]
