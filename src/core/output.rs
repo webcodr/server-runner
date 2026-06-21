@@ -1,8 +1,12 @@
 #![allow(dead_code, unused_imports)] // removed in Task 6 once server.rs and command.rs use these
 
-use crate::core::state::RingBuffer;
+use tokio::io::AsyncReadExt;
+use tokio::task::JoinHandle;
 
+use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
+
+use crate::core::state::RingBuffer;
 
 /// Max bytes buffered for a single in-progress line before it is force-flushed.
 /// Bounds memory when a child emits a very long run of bytes with no newline.
@@ -167,6 +171,57 @@ fn is_safe_ground_byte(b: u8) -> bool {
     // them as invalid sequence bytes rather than CSI/OSC, so the residual risk
     // is limited to legacy 8-bit / Latin-1 terminal modes.
     matches!(b, b'\n' | b'\r' | b'\t') || (0x20..=0x7e).contains(&b) || b >= 0x80
+}
+
+fn write_output(bytes: &[u8], stderr: bool) {
+    if stderr {
+        let mut stream = io::stderr().lock();
+        let _ = stream.write_all(bytes);
+        let _ = stream.flush();
+    } else {
+        let mut stream = io::stdout().lock();
+        let _ = stream.write_all(bytes);
+        let _ = stream.flush();
+    }
+}
+
+/// Spawn a task that drains `stream`, capturing sanitized lines into `log` and,
+/// when `tee_output` is set, writing colour-preserving, escape-filtered bytes to
+/// the real stdout/stderr.
+pub fn spawn_reader<R>(
+    mut stream: R,
+    log: Arc<Mutex<RingBuffer>>,
+    stderr: bool,
+    tee_output: bool,
+) -> JoinHandle<()>
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut buf = [0u8; 8192];
+        let mut acc = LineAccumulator::new(MAX_LINE_BYTES);
+        let mut tee = AnsiTeeFilter::new();
+
+        while let Ok(n) = stream.read(&mut buf).await {
+            if n == 0 {
+                break;
+            }
+            if tee_output {
+                write_output(&tee.filter(&buf[..n]), stderr);
+            }
+            acc.push(&buf[..n], |line| {
+                if let Ok(mut buf) = log.lock() {
+                    buf.push(line);
+                }
+            });
+        }
+
+        acc.finish(|line| {
+            if let Ok(mut buf) = log.lock() {
+                buf.push(line);
+            }
+        });
+    })
 }
 
 #[cfg(test)]
