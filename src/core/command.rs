@@ -88,7 +88,6 @@ fn spawn_inner(command: &str, tee_output: bool) -> anyhow::Result<FinalCommand> 
     })
 }
 
-
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
