@@ -1,5 +1,3 @@
-#![allow(dead_code, unused_imports)] // removed in Task 6 once server.rs and command.rs use these
-
 use tokio::io::AsyncReadExt;
 use tokio::task::JoinHandle;
 
@@ -324,7 +322,7 @@ mod tests {
     fn tee_drops_overlong_csi_sequence() {
         let mut tee = AnsiTeeFilter::new();
         let mut input = vec![0x1b, b'['];
-        input.extend(std::iter::repeat(b'9').take(MAX_CSI_LEN + 10));
+        input.extend(std::iter::repeat_n(b'9', MAX_CSI_LEN + 10));
         input.push(b'm');
         let out = tee.filter(&input);
         // An overlong CSI is treated as malformed and dropped: the ESC

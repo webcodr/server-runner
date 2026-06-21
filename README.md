@@ -49,6 +49,13 @@ Treat configuration files as trusted executable input. Server Runner starts each
 
 Readiness URLs are intended for local test services. Server Runner accepts only `http` and `https` readiness URLs and does not follow redirects during readiness checks.
 
+Server Runner captures and forwards child-process output defensively. Captured
+log lines are bounded in length and have control characters stripped. When
+output is echoed to your terminal, ANSI colour and style codes are preserved
+while window-title, clipboard, cursor-movement, and screen-clearing escape
+sequences are removed, so untrusted data flowing through a server's logs cannot
+manipulate your terminal.
+
 ### Example Configuration
 
 ~~~ yaml
