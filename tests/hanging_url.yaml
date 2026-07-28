@@ -1,0 +1,6 @@
+servers:
+  - name: "Hanging Server"
+    url: "http://127.0.0.1:8130"
+    command: "python3 tests/hanging_server.py"
+    timeout: 10
+command: "echo done"

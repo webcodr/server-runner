@@ -1,5 +1,4 @@
 use command_group::{AsyncCommandGroup, AsyncGroupChild};
-use tokio::process::Child;
 use tokio::task::JoinHandle;
 
 use std::sync::{Arc, Mutex};
@@ -9,14 +8,9 @@ use crate::core::server::{LOG_CAPACITY, build_command};
 use crate::core::state::RingBuffer;
 
 /// A spawned final command plus its captured output log.
-pub struct FinalCommand {
-    pub child: Child,
-    #[allow(dead_code)] // read by AppState in Task 9
-    pub log: Arc<Mutex<RingBuffer>>,
-    pub readers: Vec<JoinHandle<()>>,
-}
-
-/// A captured final command spawned as a process group for TUI cancellation.
+///
+/// Always a process group, so the command and every descendant it spawned can
+/// be killed together on shutdown.
 pub struct FinalCommandGroup {
     child: AsyncGroupChild,
     pub log: Arc<Mutex<RingBuffer>>,
@@ -28,60 +22,30 @@ impl FinalCommandGroup {
         self.child.wait().await
     }
 
+    /// Kill the whole process group, descendants included.
     pub async fn cancel(&mut self) -> std::io::Result<()> {
         self.child.kill().await
     }
 }
 
-/// Spawn the final command (NOT as a process group — matches today's `Command::spawn`).
-pub fn spawn(command: &str) -> anyhow::Result<FinalCommand> {
-    spawn_inner(command, true)
-}
-
-#[allow(dead_code)] // used by TUI command execution in Task 7
-pub fn spawn_captured(command: &str) -> anyhow::Result<FinalCommand> {
-    spawn_inner(command, false)
-}
-
-#[allow(dead_code)] // used by TUI command execution
-pub fn spawn_captured_group(command: &str) -> anyhow::Result<FinalCommandGroup> {
+/// Spawn the final command as a process group.
+///
+/// `tee_output` mirrors the child's output to the real stdout/stderr for plain
+/// mode; the TUI captures only and renders the log itself.
+pub fn spawn_group(command: &str, tee_output: bool) -> anyhow::Result<FinalCommandGroup> {
     let mut cmd = build_command(command)?;
     let mut child = cmd.group_spawn()?;
     let log = Arc::new(Mutex::new(RingBuffer::new(LOG_CAPACITY)));
     let mut readers = Vec::new();
 
     if let Some(stdout) = child.inner().stdout.take() {
-        readers.push(spawn_reader(stdout, Arc::clone(&log), false, false));
-    }
-    if let Some(stderr) = child.inner().stderr.take() {
-        readers.push(spawn_reader(stderr, Arc::clone(&log), true, false));
-    }
-
-    Ok(FinalCommandGroup {
-        child,
-        log,
-        readers,
-    })
-}
-
-fn spawn_inner(command: &str, tee_output: bool) -> anyhow::Result<FinalCommand> {
-    let mut cmd = build_command(command)?;
-    if !tee_output {
-        cmd.kill_on_drop(true);
-    }
-
-    let mut child = cmd.spawn()?;
-    let log = Arc::new(Mutex::new(RingBuffer::new(LOG_CAPACITY)));
-    let mut readers = Vec::new();
-
-    if let Some(stdout) = child.stdout.take() {
         readers.push(spawn_reader(stdout, Arc::clone(&log), false, tee_output));
     }
-    if let Some(stderr) = child.stderr.take() {
+    if let Some(stderr) = child.inner().stderr.take() {
         readers.push(spawn_reader(stderr, Arc::clone(&log), true, tee_output));
     }
 
-    Ok(FinalCommand {
+    Ok(FinalCommandGroup {
         child,
         log,
         readers,
@@ -94,8 +58,8 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_captured_records_output_lines() {
-        let mut command = spawn_captured("sh -c 'echo out; echo err >&2'").unwrap();
-        let status = command.child.wait().await.unwrap();
+        let mut command = spawn_group("sh -c 'echo out; echo err >&2'", false).unwrap();
+        let status = command.wait().await.unwrap();
         for reader in command.readers {
             let _ = reader.await;
         }

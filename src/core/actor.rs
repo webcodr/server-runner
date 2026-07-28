@@ -382,7 +382,7 @@ async fn run_final_command_for_tui_inner(
     state: &Arc<Mutex<AppState>>,
     cancel_rx: oneshot::Receiver<()>,
 ) -> anyhow::Result<()> {
-    let mut final_cmd = match crate::core::command::spawn_captured_group(command) {
+    let mut final_cmd = match crate::core::command::spawn_group(command, false) {
         Ok(final_cmd) => final_cmd,
         Err(error) => {
             mark_final_failed_with_message(
